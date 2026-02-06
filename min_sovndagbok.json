@@ -1,0 +1,48 @@
+{
+    "meta": {
+        "name": "Asbjørn",
+        "created": "2026-02-06",
+        "version": "1.0",
+        "settings": {
+            "target_wake": "07:00:00",
+            "window_hours": 6.0
+        }
+    },
+    "entries": {
+        "2026-02-03": {
+            "bed_time": "01:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "01:00:00",
+            "sleep_onset": "01:00:00",
+            "wake_up": "06:30:00",
+            "awakenings": [],
+            "waso_minutes": 0,
+            "nap_minutes": 0
+        },
+        "2026-02-04": {
+            "bed_time": "01:15:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "01:15:00",
+            "sleep_onset": "01:30:00",
+            "wake_up": "07:00:00",
+            "awakenings": [],
+            "waso_minutes": 0,
+            "nap_minutes": 0
+        },
+        "2026-02-05": {
+            "bed_time": "01:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "01:00:00",
+            "sleep_onset": "01:00:00",
+            "wake_up": "07:00:00",
+            "awakenings": [
+                {
+                    "time": "04:30:00",
+                    "duration_min": 15
+                }
+            ],
+            "waso_minutes": 15,
+            "nap_minutes": 0
+        }
+    }
+}
