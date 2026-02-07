@@ -6,7 +6,21 @@
         "settings": {
             "target_wake": "07:00:00",
             "window_hours": 6.0
-        }
+        },
+        "window_history": [
+            {
+                "start_date": "2026-01-28",
+                "end_date": "2026-02-02",
+                "target_wake": "07:00:00",
+                "window_hours": 5.0
+            },
+            {
+                "start_date": "2026-02-03",
+                "end_date": null,
+                "target_wake": "07:00:00",
+                "window_hours": 6.0
+            }
+        ]
     },
     "entries": {
         "2026-02-03": {

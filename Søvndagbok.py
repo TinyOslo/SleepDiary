@@ -137,7 +137,15 @@ class SleepDataManager:
                 "settings": {
                     "target_wake": "07:00:00",
                     "window_hours": 8.0
-                }
+                },
+                "window_history": [
+                    {
+                        "start_date": str(date.today()),
+                        "end_date": None,
+                        "target_wake": "07:00:00",
+                        "window_hours": 8.0
+                    }
+                ]
             },
             "entries": {}
         }
@@ -161,16 +169,88 @@ class SleepDataManager:
                 return False
         return False
 
+    def save_window_history(self, new_history):
+        if st.session_state.data is None:
+             return
+        st.session_state.data["meta"]["window_history"] = new_history
+        self._save_to_disk(st.session_state.filepath, st.session_state.data)
+
+    def get_window_history(self):
+        if st.session_state.data is None:
+             return []
+        
+        meta = st.session_state.data["meta"]
+        # Handle legacy files (init history if missing)
+        if "window_history" not in meta:
+            current_settings = meta.get("settings", {"target_wake": "07:00:00", "window_hours": 8.0})
+            st.session_state.data["meta"]["window_history"] = [{
+                "start_date": str(date.today()),
+                "end_date": None,
+                "target_wake": current_settings.get("target_wake", "07:00:00"),
+                "window_hours": current_settings.get("window_hours", 8.0)
+            }]
+             # Save immediately to fix structure
+            self._save_to_disk(st.session_state.filepath, st.session_state.data)
+
+        return st.session_state.data["meta"]["window_history"]
+
     def save_settings(self, target_wake, window_hours):
         if st.session_state.data is None:
             return
         
+        # 1. Update current settings
+        new_wake_str = target_wake.strftime("%H:%M:%S")
+        new_window = float(window_hours)
+
         st.session_state.data["meta"]["settings"] = {
-            "target_wake": target_wake.strftime("%H:%M:%S"),
-            "window_hours": float(window_hours)
+            "target_wake": new_wake_str,
+            "window_hours": new_window
         }
+
+        # 2. Update Window History
+        history = self.get_window_history()
+        today_str = str(date.today())
+
+        # Find active period
+        active_period = next((p for p in history if p["end_date"] is None), None)
+
+        if active_period:
+            # Avoid duplicate entries if values haven't changed
+            if (active_period["target_wake"] == new_wake_str and 
+                active_period["window_hours"] == new_window):
+                self._save_to_disk(st.session_state.filepath, st.session_state.data)
+                st.success("Innstillinger lagret!")
+                return
+
+            # Special case: If active period STARTED today, update it instead of closing (prevent end < start)
+            if active_period["start_date"] == today_str:
+                active_period["target_wake"] = new_wake_str
+                active_period["window_hours"] = new_window
+            else:
+                # Close old period
+                yesterday = date.today() - timedelta(days=1)
+                active_period["end_date"] = str(yesterday)
+                
+                # Start new period
+                new_period = {
+                    "start_date": today_str,
+                    "end_date": None,
+                    "target_wake": new_wake_str,
+                    "window_hours": new_window
+                }
+                history.append(new_period)
+        else:
+            # Should technically not happen due to get_window_history init, but safety fallback
+            new_period = {
+                "start_date": today_str,
+                "end_date": None,
+                "target_wake": new_wake_str,
+                "window_hours": new_window
+            }
+            history.append(new_period)
+
         self._save_to_disk(st.session_state.filepath, st.session_state.data)
-        st.success("Innstillinger lagret!")
+        st.success("Innstillinger og historikk lagret!")
 
     def get_settings(self):
         if st.session_state.data:
@@ -197,6 +277,33 @@ class SleepDataManager:
         if st.session_state.data:
             return st.session_state.data["entries"].get(str(entry_date))
         return None
+
+    def get_window_for_date(self, target_date):
+        """Finds the active settings for a specific date from history."""
+        target_str = str(target_date)
+        history = self.get_window_history()
+        
+        # Default fallback
+        fallback = self.get_settings()
+        
+        if not history:
+             return fallback
+
+        for period in history:
+            start = period["start_date"]
+            end = period["end_date"]
+            
+            # Check if target is after start
+            if target_str >= start:
+                # Check if target is before or on end (if end exists)
+                if end is None or target_str <= end:
+                    return {
+                        "target_wake": period["target_wake"],
+                        "window_hours": period["window_hours"]
+                    }
+        
+        # If no matching period found (e.g. date before first history), return fallback
+        return fallback
 
 # --- SHARED HELPERS (Data Processing) ---
 def process_log_data(data_entries):
@@ -373,8 +480,161 @@ def render_plan_view(manager):
         bed_dt = wake_dt - timedelta(hours=window_hours)
         st.markdown(f"**Anbefalt leggetid:** {bed_dt.strftime('%H:%M')}")
         
+        # New: Valid from info
+        st.info(f"ℹ️ Endringen i søvnvindu gjelder fra og med **{date.today()}**.")
+        
         if st.form_submit_button("Lagre Plan"):
             manager.save_settings(target_wake, window_hours)
+
+    # New: History Table
+    st.divider()
+    
+    # Editor in Expander
+    with st.expander("🛠️ Juster søvnplan-historikk"):
+        render_window_history_editor(manager)
+
+    st.subheader("Historikk")
+    
+    history = manager.get_window_history()
+    if history:
+        table_rows = []
+        # Reverse to show newest first
+        for i, entry in enumerate(reversed(history)):
+            row_num = len(history) - i
+            
+            start = entry["start_date"]
+            end = entry["end_date"] if entry["end_date"] else "Pågår"
+            t_wake = entry["target_wake"]
+            win = entry["window_hours"]
+            
+            table_rows.append({
+                "Periode": row_num,
+                "Fra": start,
+                "Til": end,
+                "Mål oppvåkning": t_wake,
+                "Vindu (t)": win
+            })
+            
+        st.dataframe(
+            table_rows, 
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Periode": st.column_config.NumberColumn("Periode", width="small"),
+                "Fra": st.column_config.TextColumn("Fra", width="medium"),
+                "Til": st.column_config.TextColumn("Til", width="medium"),
+                "Mål oppvåkning": st.column_config.TextColumn("Mål oppvåkning", width="medium"),
+                "Vindu (t)": st.column_config.NumberColumn("Vindu (t)", format="%.2f", width="medium")
+            }
+        )
+    else:
+        st.caption("Ingen historikk funnet.")
+
+
+def render_window_history_editor(manager):
+    st.info("Her kan du korrigere historikken. Endringer påvirker statistikk og anbefalinger.")
+    
+    history = manager.get_window_history()
+    if not history:
+        st.info("Ingen historikk å redigere.")
+        return
+
+    # Use a form? No, interactive edits needed.
+    # We edit a local copy logic
+    
+    if "history_editor_data" not in st.session_state:
+        # Initialize editor state with DEEP copy
+        st.session_state.history_editor_data = [h.copy() for h in history]
+        
+    # Button to reset/reload 
+    if st.button("🔄 Last inn på nytt"):
+         st.session_state.history_editor_data = [h.copy() for h in history]
+         st.rerun()
+
+    edited_history = st.session_state.history_editor_data
+    
+    # Iterate and edit
+    # Sort by start date to keep sane order
+    # edited_history.sort(key=lambda x: x["start_date"]) # Should we force sort? Yes.
+    
+    for i, entry in enumerate(edited_history):
+        st.markdown(f"**Periode {i+1}**")
+        c1, c2 = st.columns(2)
+        
+        # Start Date
+        try:
+            d_start = datetime.strptime(entry["start_date"], "%Y-%m-%d").date()
+        except:
+            d_start = date.today()
+            
+        new_start = c1.date_input(f"Start åååå-mm-dd #{i+1}", value=d_start, key=f"hist_start_{i}")
+        entry["start_date"] = str(new_start)
+        
+        # End Date logic
+        is_active = entry["end_date"] is None
+        active_check = c2.checkbox("Pågående periode (aktiv)", value=is_active, key=f"hist_active_{i}")
+        
+        if active_check:
+            entry["end_date"] = None
+        else:
+            try:
+                d_end = datetime.strptime(entry["end_date"], "%Y-%m-%d").date() if entry["end_date"] else date.today()
+            except:
+                d_end = date.today()
+            new_end = c2.date_input(f"Slutt åååå-mm-dd #{i+1}", value=d_end, key=f"hist_end_{i}")
+            entry["end_date"] = str(new_end)
+            
+        c3, c4 = st.columns(2)
+        # Target Wake
+        try:
+            t_wake = time.fromisoformat(entry["target_wake"])
+        except:
+            t_wake = time(7, 0)
+        new_wake = c3.time_input(f"Mål oppvåkning #{i+1}", value=t_wake, key=f"hist_wake_{i}")
+        entry["target_wake"] = new_wake.strftime("%H:%M:%S")
+        
+        # Window
+        new_win = c4.number_input(f"Vindu (t) #{i+1}", value=float(entry["window_hours"]), step=0.25, key=f"hist_win_{i}")
+        entry["window_hours"] = new_win
+        
+        st.divider()
+        
+    if st.button("💾 Lagre endringer i historikk"):
+        # Validation
+        # 1. Sort by Start Date
+        edited_history.sort(key=lambda x: x["start_date"])
+        
+        # 2. Check overlap? (Basic check: End of one < Start of next)
+        valid = True
+        active_count = 0
+        for i in range(len(edited_history)):
+            if edited_history[i]["end_date"] is None:
+                active_count += 1
+            
+            if i < len(edited_history) - 1:
+                curr_end = edited_history[i]["end_date"]
+                next_start = edited_history[i+1]["start_date"]
+                
+                if curr_end is None:
+                     # Active period must be last usually, but let's just warn if it's not
+                     # Actually, if an active period is followed by another, it's logically impossible unless dates are future?
+                     # Let's just strict check: Active period MUST be the last one if sorted by start date.
+                     pass 
+                elif curr_end >= next_start:
+                     st.error(f"Periode {i+1} slutter ({curr_end}) etter eller samtidig som periode {i+2} starter ({next_start}).")
+                     valid = False
+        
+        if active_count > 1:
+             st.error(f"Det kan maks være én aktiv periode (Pågående). Du har valgt {active_count}.")
+             valid = False
+             
+        if valid:
+            manager.save_window_history(edited_history)
+            st.success("Historikk oppdatert!")
+            # Update session state to force refresh of other views?
+            # Rerun acts as a refresh
+            del st.session_state.history_editor_data
+            st.rerun()
 
 def render_logging_view(manager):
     st.header("✍️ Daglig Loggføring")
@@ -853,7 +1113,98 @@ def render_analysis_view(manager):
         st.warning(full_msg)
     else:
         st.info(full_msg)
+
+    # --- ETTERLEVELSE AV SØVNVINDU ---
+    st.divider()
+    st.subheader("Etterlevelse av søvnvindu")
     
+    adherent_days = 0
+    total_days_checked = 0
+    
+    # Calculate adherence for recent days
+    for _, row in recent.iterrows():
+        log_date = row["Date"]
+        
+        # Get plan for this specific date
+        plan = manager.get_window_for_date(log_date)
+        try:
+            target_wake = time.fromisoformat(plan["target_wake"])
+            window_hours = plan["window_hours"]
+            
+            # Calculate Planned Bed Time
+            # Logic: Target Wake - Window. 
+            # Needs datetime for math, using arbitrary date
+            dummy_date = date(2000, 1, 1)
+            wake_dt = datetime.combine(dummy_date, target_wake)
+            plan_bed_dt = wake_dt - timedelta(hours=window_hours)
+            
+            # Actual Bed Time (from processed row)
+            # Row has 'bed_dt', but that includes specific date info. 
+            # We need to normalize to compare time-of-day roughly OR use the full datetimes if we trust the rotation.
+            # processed_log_data uses 'bed_dt' which is correct absolute time. 
+            
+            # We should construct absolute planned bed time for that specific date
+            # Wake target is usually Next Day morning unless log_date is the wake date? 
+            # Usually log date matches the wake up morning in this app's convention (or night start?)
+            # Let's check 'process_log_data':
+            # log_date is 'Date' column.
+            # wake_dt in row is calculated from log_date + wake_up time (if wake < 18).
+            # So log_date is the main date identifier.
+            
+            # Re-construct absolute planned wake for this log entry
+            # If target_wake is morning (e.g. 07:00), it belongs to the morning of log_date + 1 day?
+            # Wait, how does `process_log_data` work?
+            # "bed_dt = get_dt(bed_time, log_date)" -> if bed_time >= 18, it's log_date 18:00+. 
+            # "wake_dt = get_dt(wake_up, log_date)" -> if wake_up < 18, it's log_date + 1 day.
+            
+            # So if I set Target Wake 07:00 for "2023-01-01", I expect to wake up 07:00 on "2023-01-02".
+            # The window starts evening of "2023-01-01".
+            
+            # Let's assume the plan applies to the "night starting on log_date".
+            
+            # Target Wake Date = log_date + 1 day (standard morning wake)
+            # Planned Wake DT = (log_date + 1) @ target_wake
+            target_wake_dt = datetime.combine(log_date + timedelta(days=1), target_wake)
+            
+            # Planned Bed DT = Target Wake DT - Window
+            planned_bed_dt = target_wake_dt - timedelta(hours=window_hours)
+            
+            # Actual Bed DT
+            actual_bed_dt = row["bed_dt"]
+            
+            # Diff in minutes
+            diff_seconds = abs((actual_bed_dt - planned_bed_dt).total_seconds())
+            diff_minutes = diff_seconds / 60
+            
+            if diff_minutes <= 30:
+                adherent_days += 1
+            
+            total_days_checked += 1
+            
+        except Exception as e:
+            # Fallback if calculation fails
+            pass
+            
+    if total_days_checked > 0:
+        c1, c2 = st.columns(2)
+        c1.metric("Netter innenfor vindu (±30 min)", f"{adherent_days} / {total_days_checked}")
+        
+        adherence_rate = adherent_days / total_days_checked
+        
+        if adherence_rate >= 0.7: # Approx 5/7 days
+            if avg_se > 85:
+                # High adherence, high SE -> Ready to expand?
+                st.success("🌟 Du er veldig flink til å holde vinduet ditt! Kombinert med høy søvneffektivitet, er du i god posisjon til å utvide vinduet hvis du føler deg uthvilt.")
+            else:
+                # High adherence, low SE -> Keep going
+                st.info("👍 God etterlevelse av vinduet. Fortsett med det, så vil søvneffektiviteten sannsynligvis bedres over tid.")
+        elif adherence_rate < 0.3: # Low adherence
+             st.warning("⚠️ Mange avvik fra planlagt søvnvindu. For å få effekt av behandlingen er det avgjørende at du legger deg og står opp til planlagt tid (±30 min).")
+        else:
+             st.info("Du treffer vinduet noen netter, men prøv å bli enda mer konsekvent.")
+    else:
+        st.caption("Ikke nok data til å beregne etterlevelse.")
+
     st.caption("Oppdater målene dine under 'Plan' i menyen.")
 
 # --- RUN ---
