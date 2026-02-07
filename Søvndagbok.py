@@ -1,3 +1,6 @@
+# © 2026 Asbjørn Hval Bergestuen
+# Licensed under the MIT License. See the LICENSE file for details.
+
 import streamlit as st
 import json
 import os
