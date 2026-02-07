@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- CONFIG ---
-st.set_page_config(page_title="HelseNorge | Søvnbehandling", layout="wide", page_icon="🌙")
+st.set_page_config(page_title="Søvndagbok", layout="wide", page_icon="🌙")
 
 # --- CUSTOM CSS (NAV / Aksel Style) ---
 def render_custom_css():
@@ -27,38 +27,63 @@ def render_custom_css():
         color: #0067C5 !important;
     }
     
-    /* 3. Button Text (Keep White) */
-    .stButton > button, .stButton > button:hover, .stButton > button:active, .stButton > button:focus {
-        color: white !important;
-        background-color: #0067C5 !important;
-        border: none;
+
+    /* 3. Button Styles (Neutral Gray) */
+    .stButton > button {
+        background-color: #E0E0E0 !important;
+        color: #262626 !important;
+        border: 1px solid #B0B0B0 !important;
+        border-radius: 4px !important;
     }
-    .stButton > button span {
-        color: white !important;
+    .stButton > button:hover {
+        background-color: #D0D0D0 !important;
+        color: #262626 !important;
+        border-color: #A0A0A0 !important;
+    }
+    .stButton > button:active, .stButton > button:focus {
+        background-color: #C0C0C0 !important;
+        color: #262626 !important;
+        border-color: #909090 !important;
+        box-shadow: none !important;
+    }
+    .stButton > button p {
+        color: #262626 !important; /* Force text color */
     }
 
-    /* 4. INPUT FIELDS - THE NUCLEAR FIX */
-    /* Target every single input-like element provided by BaseWeb */
+    /* 4. Input Fields */
     input, textarea, select {
         background-color: white !important;
         color: #262626 !important;
     }
     
-    /* The Wrapper Divs for Inputs (Borders & Background) */
+    /* 5. The Wrapper Divs for Inputs (Borders & Background) */
     [data-baseweb="input"], [data-baseweb="select"] > div, [data-baseweb="textarea"] {
         background-color: white !important;
         border-color: #78706A !important;
         border: 1px solid #78706A !important;
     }
     
-    /* The Text Inside Wrapper Divs */
+
+    /* 6. The Text Inside Wrapper Divs */
     [data-baseweb="input"] input, [data-baseweb="select"] span, [data-baseweb="textarea"] textarea {
         color: #262626 !important;
         -webkit-text-fill-color: #262626 !important; /* Safari fix */
         caret-color: #262626 !important;
     }
 
-    /* Dropdown Options Menu */
+    /* 6b. Number Input: SIMPLIFIED & EXPLICIT */
+    [data-testid="stNumberInput"] > div {
+        border: 1px solid #262626 !important;
+        border-radius: 4px !important;
+        background-color: white !important;
+    }
+    
+    [data-testid="stNumberInput"] input {
+        border: none !important;
+        background-color: transparent !important;
+    }
+
+    /* 7. Dropdown Options Menu */
     ul[data-baseweb="menu"] {
         background-color: white !important;
     }
@@ -66,18 +91,22 @@ def render_custom_css():
         background-color: white !important;
         color: #262626 !important;
     }
-    /* Selected Option in Menu */
+
+    /* 8. Selected Option in Menu */
     ul[data-baseweb="menu"] li[aria-selected="true"] {
         background-color: #E6F0FF !important; /* Light blue highlight */
     }
 
-    /* 5. Containers */
+    /* 9. Containers */
     [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
         background-color: white;
         border: 1px solid #E6E6E6;
     }
+
+
+    /* 10. Sidebar */
     [data-testid="stSidebar"] {
-        background-color: white;
+        background-color: #d4edda !important; /* Success Green */
         border-right: 1px solid #E0E0E0;
     }
 </style>
@@ -185,7 +214,7 @@ def process_log_data(data_entries):
         
         # --- RIGID DATE LOGIC (18:00 PIVOT) ---
         def get_dt(t, base_date):
-            if t.hour >= 16: # Pivot at 16:00 to be safe
+            if t.hour >= 18: # Pivot at 18:00 to be safe
                 return datetime.combine(base_date, t)
             else:
                 return datetime.combine(base_date + timedelta(days=1), t)
@@ -235,7 +264,8 @@ def process_log_data(data_entries):
             "onset_dt": onset_dt,
             "wake_dt": wake_dt,
             "lights_dt": lights_dt,
-            "awakenings": processed_awakenings
+            "awakenings": processed_awakenings,
+            "nap_minutes": entry.get("nap_minutes", 0)
         })
 
     df = pd.DataFrame(processed_records).sort_values("Date")
@@ -300,7 +330,7 @@ def render_main_app(manager):
     
     with st.sidebar:
         st.markdown(f"### 👤 {meta['name']}")
-        mode = st.radio("Meny", ["📅 Plan", "✍️ Loggføring", "📊 Visualisering", "📈 Analyse"])
+        mode = st.radio("Meny", ["📅 Plan", "✍️ Loggføring", "📊 Visualisering", "📈 Analyse", "📂 Rådata"])
         st.divider()
         if st.button("Lukk Dagbok"):
             st.session_state.data = None
@@ -315,6 +345,8 @@ def render_main_app(manager):
         render_viz_view(manager)
     elif mode == "📈 Analyse":
         render_analysis_view(manager)
+    elif mode == "📂 Rådata":
+        render_rawdata_view(manager)
 
 def render_plan_view(manager):
     st.header("📅 Din Søvnplan")
@@ -363,6 +395,17 @@ def render_logging_view(manager):
                  t_obj = time.fromisoformat(item["time"])
                  parsed.append({"time": t_obj, "duration": item["duration_min"]})
             st.session_state.current_wakeups = parsed
+            
+            # SNAPSHOT FOR CHANGES
+            st.session_state.original_values = {
+                "bed_time": st.session_state.bed_time,
+                "out_of_bed": st.session_state.out_of_bed,
+                "lights_out": st.session_state.lights_out,
+                "sleep_onset": st.session_state.sleep_onset,
+                "wake_up": st.session_state.wake_up,
+                "nap_minutes": st.session_state.nap_minutes,
+                "current_wakeups": [w.copy() for w in parsed]
+            }
         else:
             plan_wake = time.fromisoformat(settings["target_wake"])
             plan_window = settings["window_hours"]
@@ -376,6 +419,10 @@ def render_logging_view(manager):
             st.session_state.wake_up = plan_wake
             st.session_state.nap_minutes = 0
             st.session_state.current_wakeups = []
+            
+            # Clear snapshot since it's a new entry
+            if "original_values" in st.session_state:
+                del st.session_state.original_values
 
     # Initialize session state for date
     if "log_date" not in st.session_state:
@@ -391,6 +438,36 @@ def render_logging_view(manager):
     cur_date = st.session_state.log_date
     if manager.get_entry(cur_date):
         st.warning(f"⚠️ Redigerer eksisterende logg for {cur_date}.")
+        
+        # --- CHECK FOR CHANGES ---
+        if "original_values" in st.session_state:
+            orig = st.session_state.original_values
+            curr_wakeups = st.session_state.current_wakeups
+            
+            # Simple field check
+            has_changes = (
+                st.session_state.bed_time != orig["bed_time"] or
+                st.session_state.out_of_bed != orig["out_of_bed"] or
+                st.session_state.lights_out != orig["lights_out"] or
+                st.session_state.sleep_onset != orig["sleep_onset"] or
+                st.session_state.wake_up != orig["wake_up"] or
+                st.session_state.nap_minutes != orig["nap_minutes"]
+            )
+            
+            # Complex check for wakeups (list of dicts)
+            if not has_changes:
+                if len(curr_wakeups) != len(orig["current_wakeups"]):
+                    has_changes = True
+                else:
+                    for i, w in enumerate(curr_wakeups):
+                        o = orig["current_wakeups"][i]
+                        # Note: 'time' in wakeups might be comparing objects, ensure type safety if needed
+                        if w["time"] != o["time"] or w["duration"] != o["duration"]:
+                            has_changes = True
+                            break
+            
+            if has_changes:
+                st.warning("📝 Du har gjort endringer i denne loggen. Husk å trykke ‘Lagre Dagbok’ for å ta vare på dem.")
 
     with st.container():
         st.subheader("Tider")
@@ -467,6 +544,18 @@ def render_logging_view(manager):
             "nap_minutes": st.session_state.nap_minutes
         }
         manager.save_entry(cur_date, entry_data)
+        
+        # Update snapshot to reflect saved state
+        st.session_state.original_values = {
+            "bed_time": st.session_state.bed_time,
+            "out_of_bed": st.session_state.out_of_bed,
+            "lights_out": st.session_state.lights_out,
+            "sleep_onset": st.session_state.sleep_onset,
+            "wake_up": st.session_state.wake_up,
+            "nap_minutes": st.session_state.nap_minutes,
+            "current_wakeups": [w.copy() for w in st.session_state.current_wakeups]
+        }
+        st.rerun()
 
 def render_viz_view(manager):
     st.header("📊 Visualisering")
@@ -601,6 +690,68 @@ def render_viz_view(manager):
     )
     st.plotly_chart(fig_gantt, use_container_width=True)
 
+def render_rawdata_view(manager):
+    st.header("📂 Rådata")
+    
+    # 1. Access Data
+    if not st.session_state.data or "entries" not in st.session_state.data:
+        st.info("Ingen data tilgjengelig.")
+        return
+        
+    entries = st.session_state.data["entries"]
+    if not entries:
+        st.info("Ingen loggføringer funnet.")
+        return
+
+    # 2. Controls
+    filter_option = st.radio("Visning", ["Siste 7 dager", "Alle data"], horizontal=True)
+    
+    # 3. Process Data into List
+    rows = []
+    for date_str, data in entries.items():
+        # Helpers for safety
+        def safe_get(key): return data.get(key, "")
+        
+        # Format awakenings
+        awaks = data.get("awakenings", [])
+        awak_str = "; ".join([f"{a['time']} ({a['duration_min']}m)" for a in awaks])
+        
+        rows.append({
+            "Dato": date_str,
+            "Leggetid": safe_get("bed_time"),
+            "Slukket lys": safe_get("lights_out"),
+            "Sovnet": safe_get("sleep_onset"),
+            "Våknet": safe_get("wake_up"),
+            "Sto opp": safe_get("out_of_bed"),
+            "WASO (min)": safe_get("waso_minutes"),
+            "Søvn dagtid (min)": safe_get("nap_minutes"),
+            "Antall oppvåk.": len(awaks),
+            "Oppvåkninger detaljer": awak_str
+        })
+    
+    # 4. Create DataFrame and Sort
+    df = pd.DataFrame(rows)
+    df["Dato_dt"] = pd.to_datetime(df["Dato"])
+    df = df.sort_values("Dato_dt", ascending=False)
+    
+    # 5. Filter
+    if filter_option == "Siste 7 dager":
+        df = df.head(7)
+    
+    # Drop temp sort column
+    df = df.drop(columns=["Dato_dt"])
+    
+    # 6. Display
+    st.dataframe(
+        df, 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "Dato": st.column_config.TextColumn("Dato", width="medium"),
+            "Oppvåkninger detaljer": st.column_config.TextColumn("Oppvåkninger", width="large"),
+        }
+    )
+
 def render_analysis_view(manager):
     st.header("📈 Analyse & Råd (CBT-i)")
     data_entries = st.session_state.data["entries"]
@@ -646,6 +797,59 @@ def render_analysis_view(manager):
             """)
     else:
         st.info(f"### 👌 SE er {avg_se:.1f}% (80-85%). Behold nåværende vindu.")
+
+    # --- VURDERING AV SØVN PÅ DAGTID ---
+    st.divider()
+    st.subheader("Vurdering av søvn på dagtid")
+    
+    # 1. Beregn nøkkeltall fra recent_df (siste 7 dager)
+    days_with_naps = recent[recent["nap_minutes"] > 0].shape[0]
+    total_naps_min = recent["nap_minutes"].sum()
+    # Pass på å dele på antall loggførte dager, ikke nødvendigvis 7 hvis man har logget færre
+    num_logged_days = len(recent)
+    avg_nap_min_per_day = (total_naps_min / num_logged_days) if num_logged_days > 0 else 0
+    
+    # 2. Lag kjerne-budskap basert på ANTALL DAGER med naps
+    if days_with_naps == 0:
+        msg_type = "success"
+        main_msg = "Du har **ikke loggført søvn på dagtid** den siste uken. Dette er veldig bra for å bygge opp solid søvntrykk til kvelden!"
+    elif days_with_naps == 1:
+        msg_type = "info"
+        main_msg = "Du har loggført **én dag** med søvn på dagtid. Dette er normalt innimellom, men vær oppmerksom på at det kan redusere søvntrykket ditt noe."
+    elif 2 <= days_with_naps <= 3:
+        msg_type = "info" # Tydeligere info
+        main_msg = f"Du har loggført **{days_with_naps} dager** med søvn på dagtid. Dette kan begynne å svekke effekten av søvnrestriksjonen. Prøv å begrense dagsoving."
+    else: # >= 4
+        msg_type = "warning"
+        main_msg = f"Du har loggført **{days_with_naps} dager** med søvn på dagtid (nesten daglig). Dette vil sannsynligvis motvirke søvnrestriksjons-behandlingen. Anbefalingen er å **unngå søvn på dagtid** helt i denne perioden."
+
+    # 3. Legg til nyansering basert på GJENNOMSNITTLIG VARIGHET
+    if days_with_naps > 0:
+        if avg_nap_min_per_day < 10:
+            duration_msg = f"Gjennomsnittlig varighet er lav (**{avg_nap_min_per_day:.1f} min**). Dette har vanligvis liten betydning, men følg med."
+        elif 10 <= avg_nap_min_per_day < 30:
+            duration_msg = f"Gjennomsnittlig varighet er **{avg_nap_min_per_day:.1f} min**. Dette kan redusere søvntrykket. Hvis du må sove, hold det under 10-15 minutter."
+        else: # >= 30
+            duration_msg = f"Gjennomsnittlig varighet er **{avg_nap_min_per_day:.1f} min**. Dette gir en sannsynlig merkbar reduksjon i søvntrykk. Prøv å kutte ut disse lurene."
+            # Hvis vi allerede har warning, behold warning. Hvis vi har info, kanskje oppgrader til warning? 
+            # Oppgaveteksten sier ">= 30 min: sannsynlig merkbar reduksjon...".
+            # La oss la 'days_with_naps >= 4' styre hoved-warningen, men hvis varigheten er lang, blir teksten strengere.
+            if msg_type == "info":
+                msg_type = "warning" # Oppgraderer til warning hvis lurene er lange, selv om det er få dager?
+                # Oppgavetekst eksplisitt: "Plasser boksen... bruk st.info for milde nivåer og st.warning for de strengere".
+                # La oss holde det enkelt: Vi legger duration_msg til main_msg.
+        
+        full_msg = f"{main_msg}\n\n*{duration_msg}*"
+    else:
+        full_msg = main_msg
+
+    # 4. Vis boksen
+    if msg_type == "success":
+        st.success(full_msg)
+    elif msg_type == "warning":
+        st.warning(full_msg)
+    else:
+        st.info(full_msg)
     
     st.caption("Oppdater målene dine under 'Plan' i menyen.")
 
