@@ -547,7 +547,7 @@ def render_plan_view(manager):
         st.dataframe(
             table_rows, 
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Periode": st.column_config.NumberColumn("Periode", width="small"),
                 "Fra": st.column_config.TextColumn("Fra", width="medium"),
@@ -949,7 +949,7 @@ def render_viz_view(manager):
         legend=dict(font=dict(color='#262626'))
     )
     fig_se.add_hline(y=85, line_dash="dash", line_color="#06893A", annotation_text="Mål (85%)")
-    st.plotly_chart(fig_se, use_container_width=True)
+    st.plotly_chart(fig_se, width="stretch")
 
     # --- GRAF 2: GANTT ---
     st.divider()
@@ -1032,7 +1032,7 @@ def render_viz_view(manager):
             gridcolor='#D1D1D1'
         )
     )
-    st.plotly_chart(fig_gantt, use_container_width=True)
+    st.plotly_chart(fig_gantt, width="stretch")
 
 def render_rawdata_view(manager):
     st.header("📂 Rådata")
@@ -1088,7 +1088,7 @@ def render_rawdata_view(manager):
     # 6. Display
     st.dataframe(
         df, 
-        use_container_width=True, 
+        width="stretch", 
         hide_index=True,
         column_config={
             "Dato": st.column_config.TextColumn("Dato", width="medium"),
@@ -1105,10 +1105,43 @@ def render_analysis_view(manager):
         st.info("Loggfør mer data for å få en analyse.")
         return
         
+    # --- 1. FILTERING BASED ON ACTIVE WINDOW ---
+    # Start with last 7 days (standard analysis window)
     recent = df.tail(7)
-    avg_se = recent["SE"].mean()
-    avg_tst = recent["TST_min"].mean()
-    avg_tib = recent["TIB_min"].mean()
+
+    # Retrieve history to find active start date
+    history = manager.get_window_history()
+    active_start_date = None
+    
+    # Standard: Find active period (end_date=None)
+    for period in history:
+        if period.get("end_date") is None:
+            active_start_date = period.get("start_date")
+            break
+            
+    # Fallback if no active period found (should logically not happen if initialized correctly)
+    if not active_start_date:
+        # If dataset has dates, pick a very old one or just use all
+        active_start_date = "2000-01-01"
+
+    # Convert to date object for comparison
+    try:
+        active_start_dt = datetime.strptime(active_start_date, "%Y-%m-%d").date()
+    except:
+        active_start_dt = date(2000, 1, 1)
+
+    # Create RELEVANT dataframe (subset of recent 7 days that are within active window)
+    relevant_df = recent[recent["Date"] >= active_start_dt].copy()
+    
+    # Use relevant_df for all calculations
+    # If we have no data in active period (e.g. just started today and no log yet), handle gracefully
+    if relevant_df.empty:
+        st.info(f"Ingen data funnet for nåværende periode (startet {active_start_date}). Loggfør data for å se statistikk.")
+        return
+
+    avg_se = relevant_df["SE"].mean()
+    avg_tst = relevant_df["TST_min"].mean()
+    avg_tib = relevant_df["TIB_min"].mean()
     
     def fmt_min(m):
         return f"{int(m // 60)}t {int(m % 60)}m"
@@ -1124,39 +1157,49 @@ def render_analysis_view(manager):
     curr_settings = manager.get_settings()
     curr_win = curr_settings.get("window_hours", 8.0)
     
-    if avg_se > 85:
-        st.success(f"""
-        ### 👍 Godt jobbet! SE er {avg_se:.1f}% (> 85%)
-        **Anbefaling:** ØK søvnvinduet med 15 minutter (til {format_hours_as_hm(curr_win + 0.25)}).
-        *Legg deg 15 min tidligere eller stå opp 15 min senere.*
-        """)
-    elif avg_se < 80:
-        if curr_win <= 5:
-            st.warning(f"SE er {avg_se:.1f}%. Du er allerede på minimumsvindu (5t). Hold ut!")
-        else:
-            st.warning(f"""
-            ### ⚠️ SE er {avg_se:.1f}% (< 80%)
-            **Anbefaling:** REDUSER søvnvinduet med 15 minutter (til {format_hours_as_hm(curr_win - 0.25)}).
-            *Legg deg 15 min senere eller stå opp 15 min før.*
-            """)
+    days_count = len(relevant_df)
+    
+    if days_count < 3:
+        st.info(f"ℹ️ Nytt søvnvindu aktivert. Vi trenger minst 3 dager med data i denne perioden før vi gir nye råd. (Har {days_count} dager).")
     else:
-        st.info(f"### 👌 SE er {avg_se:.1f}% (80-85%). Behold nåværende vindu.")
+        # Valid amount of data to give advice
+        if avg_se > 85:
+            st.success(f"""
+            ### 👍 Godt jobbet! SE er {avg_se:.1f}% (> 85%)
+            **Anbefaling:** ØK søvnvinduet med 15 minutter (til {format_hours_as_hm(curr_win + 0.25)}).
+            *Legg deg 15 min tidligere eller stå opp 15 min senere.*
+            """)
+        elif avg_se < 80:
+            if curr_win <= 5:
+                st.warning(f"SE er {avg_se:.1f}%. Du er allerede på minimumsvindu (5t). Hold ut!")
+            else:
+                st.warning(f"""
+                ### ⚠️ SE er {avg_se:.1f}% (< 80%)
+                **Anbefaling:** REDUSER søvnvinduet med 15 minutter (til {format_hours_as_hm(curr_win - 0.25)}).
+                *Legg deg 15 min senere eller stå opp 15 min før.*
+                """)
+        else:
+            st.info(f"### 👌 SE er {avg_se:.1f}% (80-85%). Behold nåværende vindu.")
+            
+        # Add context about data basis if between 3 and 7 days
+        if 3 <= days_count < 7:
+            st.caption(f"(Basert på de siste {days_count} dagene i nåværende periode)")
 
     # --- VURDERING AV SØVN PÅ DAGTID ---
     st.divider()
     st.subheader("Vurdering av søvn på dagtid")
     
-    # 1. Beregn nøkkeltall fra recent_df (siste 7 dager)
-    days_with_naps = recent[recent["nap_minutes"] > 0].shape[0]
-    total_naps_min = recent["nap_minutes"].sum()
+    # 1. Beregn nøkkeltall fra relevant_df
+    days_with_naps = relevant_df[relevant_df["nap_minutes"] > 0].shape[0]
+    total_naps_min = relevant_df["nap_minutes"].sum()
     # Pass på å dele på antall loggførte dager, ikke nødvendigvis 7 hvis man har logget færre
-    num_logged_days = len(recent)
+    num_logged_days = len(relevant_df)
     avg_nap_min_per_day = (total_naps_min / num_logged_days) if num_logged_days > 0 else 0
     
     # 2. Lag kjerne-budskap basert på ANTALL DAGER med naps
     if days_with_naps == 0:
         msg_type = "success"
-        main_msg = "Du har **ikke loggført søvn på dagtid** den siste uken. Dette er veldig bra for å bygge opp solid søvntrykk til kvelden!"
+        main_msg = "Du har **ikke loggført søvn på dagtid** i denne perioden. Dette er veldig bra for å bygge opp solid søvntrykk til kvelden!"
     elif days_with_naps == 1:
         msg_type = "info"
         main_msg = "Du har loggført **én dag** med søvn på dagtid. Dette er normalt innimellom, men vær oppmerksom på at det kan redusere søvntrykket ditt noe."
@@ -1202,8 +1245,8 @@ def render_analysis_view(manager):
     adherent_days = 0
     total_days_checked = 0
     
-    # Calculate adherence for recent days
-    for _, row in recent.iterrows():
+    # Calculate adherence for relevant days
+    for _, row in relevant_df.iterrows():
         log_date = row["Date"]
         
         # Get plan for this specific date
@@ -1287,6 +1330,24 @@ def render_analysis_view(manager):
         st.caption("Ikke nok data til å beregne etterlevelse.")
 
     st.caption("Oppdater målene dine under 'Plan' i menyen.")
+
+    # --- CONTROL TABLE ---
+    st.divider()
+    with st.expander("Se datagrunnlag (Active Window)"):
+        st.caption(f"Viser data fra startdato for nåværende periode: {active_start_date}")
+        
+        # Prepare display dataframe
+        display_df = relevant_df.copy()
+        display_df["Dato"] = display_df["Date"].astype(str)
+        display_df["SE (%)"] = display_df["SE"].round(1)
+        display_df["TST (t:m)"] = display_df["TST_min"].apply(fmt_min)
+        display_df["TIB (t:m)"] = display_df["TIB_min"].apply(fmt_min)
+        
+        st.dataframe(
+            display_df[["Dato", "SE (%)", "TST (t:m)", "TIB (t:m)"]],
+            hide_index=True,
+            width="stretch"
+        )
 
 # --- RUN ---
 if __name__ == "__main__":
