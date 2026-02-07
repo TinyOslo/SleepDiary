@@ -306,6 +306,19 @@ class SleepDataManager:
         return fallback
 
 # --- SHARED HELPERS (Data Processing) ---
+def format_hours_as_hm(hours: float) -> str:
+    total_min = int(round(hours * 60))
+    h = total_min // 60
+    m = total_min % 60
+    if m == 0:
+        return f"{h} t"
+    return f"{h} t {m} min"
+
+# Slider options: 3 hours (180 min) to 12 hours (720 min) step 15
+WINDOW_OPTIONS = range(180, 735, 15)
+def format_window_label(m):
+    return f"{m//60}:{m%60:02d}"
+
 def process_log_data(data_entries):
     if not data_entries:
         return pd.DataFrame()
@@ -471,14 +484,30 @@ def render_plan_view(manager):
             curr_wake = time(7, 0)
             
         curr_window = current_settings.get("window_hours", 8.0)
+        curr_window_min = int(round(float(curr_window) * 60))
         
         c1, c2 = st.columns(2)
         target_wake = c1.time_input("Mål for oppvåkning", value=curr_wake)
-        window_hours = c2.number_input("Søvnvindu (timer)", value=float(curr_window), step=0.25)
+        
+        # UI shows time format (H:MM)
+        # Find closest option to current value
+        current_val = min(WINDOW_OPTIONS, key=lambda x: abs(x - curr_window_min))
+        
+        window_minutes = c2.select_slider(
+            "Søvnvindu (timer:minutter)",
+            options=WINDOW_OPTIONS,
+            value=current_val,
+            format_func=format_window_label,
+            help="Hvor lenge du skal ligge i sengen."
+        )
+        window_hours = window_minutes / 60.0
         
         wake_dt = datetime.combine(date.today(), target_wake)
         bed_dt = wake_dt - timedelta(hours=window_hours)
-        st.markdown(f"**Anbefalt leggetid:** {bed_dt.strftime('%H:%M')}")
+        st.markdown(
+            f"**Anbefalt leggetid:** {bed_dt.strftime('%H:%M')}  "
+            f"(søvnvindu: {format_hours_as_hm(window_hours)})"
+        )
         
         # New: Valid from info
         st.info(f"ℹ️ Endringen i søvnvindu gjelder fra og med **{date.today()}**.")
@@ -512,7 +541,7 @@ def render_plan_view(manager):
                 "Fra": start,
                 "Til": end,
                 "Mål oppvåkning": t_wake,
-                "Vindu (t)": win
+                "Vindu": format_hours_as_hm(win)
             })
             
         st.dataframe(
@@ -557,47 +586,98 @@ def render_window_history_editor(manager):
     # Sort by start date to keep sane order
     # edited_history.sort(key=lambda x: x["start_date"]) # Should we force sort? Yes.
     
-    for i, entry in enumerate(edited_history):
+    # Iterate in reverse to show newest first, but keep index for editing
+    # list(enumerate(history)) gives [(0, h0), (1, h1)...]
+    # reversed(...) gives [(N, hN)... (0, h0)]
+    for i, entry in reversed(list(enumerate(edited_history))):
         st.markdown(f"**Periode {i+1}**")
+        
+        # Grid Layout 2.0
+        # Row 1: Active Checkbox (Right)
+        
         c1, c2 = st.columns(2)
+        # Left col empty
+        c1.write("")
+        
+        # Checkbox logic
+        is_active_in_data = entry["end_date"] is None
+        # Use key to persist state if needed, but value drives initial render
+        is_active = c2.checkbox("Pågående periode (aktiv)", value=is_active_in_data, key=f"hist_active_{i}")
+        
+        # Row 2: Dates
+        c3, c4 = st.columns(2)
         
         # Start Date
         try:
             d_start = datetime.strptime(entry["start_date"], "%Y-%m-%d").date()
         except:
             d_start = date.today()
-            
-        new_start = c1.date_input(f"Start åååå-mm-dd #{i+1}", value=d_start, key=f"hist_start_{i}")
+        new_start = c3.date_input(f"Start dato #{i+1}", value=d_start, key=f"hist_start_{i}")
         entry["start_date"] = str(new_start)
         
-        # End Date logic
-        is_active = entry["end_date"] is None
-        active_check = c2.checkbox("Pågående periode (aktiv)", value=is_active, key=f"hist_active_{i}")
+        # End Date
+        # Logic controlled by checkbox above
+        try:
+            current_end_date = datetime.strptime(entry["end_date"], "%Y-%m-%d").date() if entry["end_date"] else date.today()
+        except:
+            current_end_date = date.today()
+            
+        end_date_input_val = date.today() if is_active else current_end_date
         
-        if active_check:
+        new_end = c4.date_input(
+            f"Slutt dato #{i+1}", 
+            value=end_date_input_val, 
+            disabled=is_active,
+            key=f"hist_end_{i}"
+        )
+        
+        # Update entry based on active state
+        if is_active:
             entry["end_date"] = None
         else:
-            try:
-                d_end = datetime.strptime(entry["end_date"], "%Y-%m-%d").date() if entry["end_date"] else date.today()
-            except:
-                d_end = date.today()
-            new_end = c2.date_input(f"Slutt åååå-mm-dd #{i+1}", value=d_end, key=f"hist_end_{i}")
             entry["end_date"] = str(new_end)
-            
-        c3, c4 = st.columns(2)
+
+        # Row 3: Time & Window
+        c5, c6 = st.columns(2)
+        
         # Target Wake
         try:
             t_wake = time.fromisoformat(entry["target_wake"])
         except:
             t_wake = time(7, 0)
-        new_wake = c3.time_input(f"Mål oppvåkning #{i+1}", value=t_wake, key=f"hist_wake_{i}")
+        new_wake = c5.time_input(f"Mål oppvåkning #{i+1}", value=t_wake, key=f"hist_wake_{i}")
         entry["target_wake"] = new_wake.strftime("%H:%M:%S")
         
-        # Window
-        new_win = c4.number_input(f"Vindu (t) #{i+1}", value=float(entry["window_hours"]), step=0.25, key=f"hist_win_{i}")
-        entry["window_hours"] = new_win
+        # Window Slider
+        win_min = int(round(float(entry["window_hours"]) * 60))
+        # Find closest option
+        current_val_hist = min(WINDOW_OPTIONS, key=lambda x: abs(x - win_min))
         
+        new_win_min = c6.select_slider(
+            f"Vindu (t:m) #{i+1}", 
+            options=WINDOW_OPTIONS,
+            value=current_val_hist,
+            format_func=format_window_label,
+            key=f"hist_win_{i}"
+        )
+        entry["window_hours"] = new_win_min / 60.0
+
+        # Row 4: Delete Button (Only for inactive periods)
+        if not is_active:
+            if st.button(f"🗑️ Slett periode {i+1}", key=f"del_hist_{i}"):
+                edited_history.pop(i)
+                manager.save_window_history(edited_history)
+                st.session_state.history_editor_data = edited_history
+                st.rerun()
+
         st.divider()
+
+    # Immediate Validation Display
+    active_count = sum(1 for e in edited_history if e["end_date"] is None)
+    if active_count > 1:
+        st.error("⚠️ Du har markert flere perioder som pågående. Vennligst fjern krysset fra de gamle periodene og sett en sluttdato for dem.")
+    elif active_count == 0:
+        st.warning("⚠️ Ingen periode er markert som pågående. Dette vil stoppe beregningen av anbefalinger.")
         
     if st.button("💾 Lagre endringer i historikk"):
         # Validation
@@ -606,28 +686,29 @@ def render_window_history_editor(manager):
         
         # 2. Check overlap? (Basic check: End of one < Start of next)
         valid = True
-        active_count = 0
-        for i in range(len(edited_history)):
-            if edited_history[i]["end_date"] is None:
-                active_count += 1
+        
+        # Active Period Validation
+        if active_count > 1:
+            st.error(f"Feil: {active_count} perioder er markert som pågående (aktive). Kun én periode kan være aktiv av gangen. Gå gjennom listen og sett sluttdato på de gamle periodene.")
+            valid = False
             
+        # Overlap Check
+        for i in range(len(edited_history)):
             if i < len(edited_history) - 1:
                 curr_end = edited_history[i]["end_date"]
                 next_start = edited_history[i+1]["start_date"]
                 
                 if curr_end is None:
-                     # Active period must be last usually, but let's just warn if it's not
-                     # Actually, if an active period is followed by another, it's logically impossible unless dates are future?
-                     # Let's just strict check: Active period MUST be the last one if sorted by start date.
+                     # Active period must be last usually
+                     # If active period is followed by another, it means active period starts BEFORE next one?
+                     # Allowed if active period is *ongoing* and next one is *future plan*? 
+                     # But current logic treats active as *current*.
+                     # Let's not strictly block based on position, but warn if active is not last?
                      pass 
                 elif curr_end >= next_start:
                      st.error(f"Periode {i+1} slutter ({curr_end}) etter eller samtidig som periode {i+2} starter ({next_start}).")
                      valid = False
         
-        if active_count > 1:
-             st.error(f"Det kan maks være én aktiv periode (Pågående). Du har valgt {active_count}.")
-             valid = False
-             
         if valid:
             manager.save_window_history(edited_history)
             st.success("Historikk oppdatert!")
@@ -1046,7 +1127,7 @@ def render_analysis_view(manager):
     if avg_se > 85:
         st.success(f"""
         ### 👍 Godt jobbet! SE er {avg_se:.1f}% (> 85%)
-        **Anbefaling:** ØK søvnvinduet med 15 minutter (til {curr_win + 0.25}t).
+        **Anbefaling:** ØK søvnvinduet med 15 minutter (til {format_hours_as_hm(curr_win + 0.25)}).
         *Legg deg 15 min tidligere eller stå opp 15 min senere.*
         """)
     elif avg_se < 80:
@@ -1055,7 +1136,7 @@ def render_analysis_view(manager):
         else:
             st.warning(f"""
             ### ⚠️ SE er {avg_se:.1f}% (< 80%)
-            **Anbefaling:** REDUSER søvnvinduet med 15 minutter (til {curr_win - 0.25}t).
+            **Anbefaling:** REDUSER søvnvinduet med 15 minutter (til {format_hours_as_hm(curr_win - 0.25)}).
             *Legg deg 15 min senere eller stå opp 15 min før.*
             """)
     else:
