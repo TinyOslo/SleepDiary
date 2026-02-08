@@ -220,14 +220,14 @@ class SleepDataManager:
         meta = st.session_state.data["meta"]
         # Handle legacy files (init history if missing)
         if "window_history" not in meta:
-            current_settings = meta.get("settings", {"target_wake": "07:00:00", "window_hours": 8.0})
+            current_settings = meta.get("settings", {"target_wake": "07:00:00", "window_hours": 6.0})
             st.session_state.data["meta"]["window_history"] = [{
                 "start_date": str(date.today()),
                 "end_date": None,
                 "target_wake": current_settings.get("target_wake", "07:00:00"),
-                "window_hours": current_settings.get("window_hours", 8.0)
+                "window_hours": current_settings.get("window_hours", 6.0)
             }]
-             # Save immediately to fix structure
+            # Save immediately to fix structure
             self._save_to_disk(st.session_state.filepath, st.session_state.data)
 
         return st.session_state.data["meta"]["window_history"]
@@ -352,8 +352,8 @@ def format_hours_as_hm(hours: float) -> str:
         return f"{h} t"
     return f"{h} t {m} min"
 
-# Slider options: 5 hours (300 min) to 10 hours (600 min) step 15
-WINDOW_OPTIONS = range(300, 600, 15)
+# Slider options: 5 hours (300 min) to 12 hours (720 min) step 15
+WINDOW_OPTIONS = range(300, 720, 15)
 def format_window_label(m):
     return f"{m//60}:{m%60:02d}"
 
@@ -457,7 +457,7 @@ def build_sleep_gantt_figure(df, for_print=False):
         base_d1 = date(2000, 1, 1)
         base_d2 = date(2000, 1, 2)
         t = dt_obj.time()
-        if t.hour >= 16:
+        if t.hour >= 18:
             return datetime.combine(base_d1, t)
         else:
             return datetime.combine(base_d2, t)
@@ -560,19 +560,19 @@ def render_landing_page(manager):
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Ny Dagbok")
+        st.subheader("Ny dagbok")
         with st.form("new_user_form"):
             new_name = st.text_input("Ditt navn")
             filename = st.text_input("Filnavn", value="min_sovndagbok.json")
             save_dir = st.session_state.current_browser_dir
-            st.caption(f"Lagres i: {save_dir} - VELG MAPPE TIL HØYRE ->>")
+            st.caption(f"Lagres i: {save_dir} - **VELG MAPPE TIL HØYRE ->>**")
             
             if st.form_submit_button("Opprett ny"):
                 if manager.create_new_log(new_name, save_dir, filename):
                     st.rerun()
 
     with col2:
-        st.subheader("Åpne Fil")
+        st.subheader("Åpne fil")
         current_path = st.session_state.current_browser_dir
         st.text(f"📍 {current_path}")
         
@@ -611,7 +611,7 @@ def render_main_app(manager):
         st.markdown(f"### 👤 {meta['name']}")
         mode = st.radio("Meny", ["📅 Din søvnplan", "🏠 Loggføring", "📊 Visualisering", "📈 Analyse og råd", "📝 Rapporter og utskrifter", "📂 Rådata"])
         st.divider()
-        if st.button("Lukk Dagbok"):
+        if st.button("Lukk dagbok"):
             st.session_state.data = None
             st.session_state.filepath = None
             st.rerun()
@@ -641,11 +641,11 @@ def render_plan_view(manager):
         except ValueError:
             curr_wake = time(7, 0)
             
-        curr_window = current_settings.get("window_hours", 8.0)
+        curr_window = current_settings.get("window_hours", 6.0)
         curr_window_min = int(round(float(curr_window) * 60))
         
         c1, c2 = st.columns(2)
-        target_wake = c1.time_input("Mål for oppvåkning", value=curr_wake)
+        target_wake = c1.time_input("Mål for oppvåkning", value=curr_wake, help="Når du skal stå opp om morgenen.")
         
         # UI shows time format (H:MM)
         # Find closest option to current value
@@ -677,7 +677,7 @@ def render_plan_view(manager):
     st.divider()
     
     # Editor in Expander
-    with st.expander("🛠️ Juster søvnplan-historikk. **GJØRES KUN I SAMRÅD MED BEHANDLER!**"):
+    with st.expander("🛠️ Juster søvnplan-historikk. **ER NORMALT SETT IKKE NØDVENDIG Å GJØRE NOE HER!**"):
         render_window_history_editor(manager)
 
     st.subheader("Historikk")
@@ -837,9 +837,9 @@ def render_window_history_editor(manager):
     # Immediate Validation Display
     active_count = sum(1 for e in edited_history if e["end_date"] is None)
     if active_count > 1:
-        st.error("⚠️ Du har markert flere perioder som pågående. Vennligst fjern krysset fra de gamle periodene og sett en sluttdato for dem.")
+        st.error("⚠️ **Du har markert flere perioder som pågående. Vennligst fjern krysset fra de gamle periodene og sett en sluttdato for dem.**")
     elif active_count == 0:
-        st.warning("⚠️ Ingen periode er markert som pågående. Dette vil stoppe beregningen av anbefalinger.")
+        st.warning("⚠️ **Ingen periode er markert som pågående. Dette vil stoppe beregningen av anbefalinger.**")
         
     if st.button("💾 Lagre endringer i historikk"):
         # Validation
@@ -851,7 +851,7 @@ def render_window_history_editor(manager):
         
         # Active Period Validation
         if active_count > 1:
-            st.error(f"Feil: {active_count} perioder er markert som pågående (aktive). Kun én periode kan være aktiv av gangen. Gå gjennom listen og sett sluttdato på de gamle periodene.")
+            st.error(f"**Feil: {active_count} perioder er markert som pågående (aktive). Kun én periode kan være aktiv av gangen. Gå gjennom listen og sett sluttdato på de gamle periodene.**")
             valid = False
             
         # Overlap Check
@@ -1261,8 +1261,8 @@ def render_analysis_view(manager):
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Søvneffektivitet", f"{avg_se:.1f}%")
-    c2.metric("Total Søvn (TST)", fmt_min(avg_tst))
-    c3.metric("Tid i Seng (TIB)", fmt_min(avg_tib))
+    c2.metric("Total søvn (TST)", fmt_min(avg_tst))
+    c3.metric("Tid i seng (TIB)", fmt_min(avg_tib))
     
     st.divider()
     
@@ -1456,34 +1456,63 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
     num_nights = len(filtered_df)
     avg_nap_min = filtered_df["nap_minutes"].mean() if "nap_minutes" in filtered_df.columns else 0
 
+    # --- TABLE GENERATION (Aligned for text view) ---
+    def generate_aligned_table(df):
+        headers = ["Dato", "SE", "TST", "TIB", "WASO", "Nap"]
+        widths = [6, 7, 8, 8, 6, 6]
+        
+        # Build header
+        head_line = "|"
+        sep_line = "|"
+        for h, w in zip(headers, widths):
+             head_line += f" {h:<{w}} |"
+             sep_line += f" {'-'*w} |"
+        
+        md = head_line + "\n" + sep_line + "\n"
+        
+        for _, row in df.sort_values("Date").iterrows():
+            d_str = row["Date"].strftime("%d.%m")
+            se_val = f"{row['SE']:.1f}%"
+            tst_str = fmt_hm(row['TST_min'])
+            tib_str = fmt_hm(row['TIB_min'])
+            w_sum = sum(a["duration_min"] for a in row["awakenings"])
+            nap_val = row.get("nap_minutes", 0)
+            
+            vals = [d_str, se_val, tst_str, tib_str, f"{w_sum}m", f"{nap_val}m"]
+            row_line = "|"
+            for v, w in zip(vals, widths):
+                row_line += f" {v:<{w}} |"
+            md += row_line + "\n"
+        return md
+
+    table_md = generate_aligned_table(filtered_df)
+
     # --- MODE: TEXT REPORT or NORMAL ---
     if print_mode == "report" or not print_mode:
+        
+        # Prepare metrics string
+        metrics_md = f"""- SE: {avg_se:.1f}%
+- TST: {fmt_hm(avg_tst_min)}
+- TIB: {fmt_hm(avg_tib_min)}
+- WASO: {int(avg_waso)} min
+- Nap: {int(avg_nap_min)} min"""
+
         if print_mode == "report":
-            # --- COMPACT METRICS FOR PRINT ---
-            st.markdown(f"""
-**Periode:** {start_date} – {end_date} | **Netter:** {num_nights}
+            # --- PRINT MODE ---
+            st.markdown(f"""### Rapport (søvndagbok)
+**Periode:** {start_date} – {end_date}
+**Datagrunnlag:** {num_nights} netter logget.
 
-**Snitt:** SE: {avg_se:.1f}% | TST: {fmt_hm(avg_tst_min)} | TIB: {fmt_hm(avg_tib_min)} | WASO: {int(avg_waso)} min | Nap: {int(avg_nap_min)} min
-            """)
+#### Nøkkeltall (snitt):
+{metrics_md}
+""")
             st.divider()
+            st.markdown("#### Dag-for-dag:")
+            st.code(table_md, language="text")
 
-            # --- TABLE GENERATION ---
-            table_md = "| Dato | SE | TST | TIB | WASO | Nap |\n"
-            table_md += "|---|---|---|---|---|---|\n"
-            
-            for _, row in filtered_df.sort_values("Date").iterrows():
-                d_str = row["Date"].strftime("%d.%m")
-                se_val = f"{row['SE']:.1f}%"
-                tst_str = fmt_hm(row['TST_min'])
-                tib_str = fmt_hm(row['TIB_min'])
-                w_sum = sum(a["duration_min"] for a in row["awakenings"])
-                nap_val = row.get("nap_minutes", 0)
-                table_md += f"| {d_str} | {se_val} | {tst_str} | {tib_str} | {w_sum}m | {nap_val}m |\n"
-
-            st.markdown(f"#### Dag-for-dag:\n{table_md}")
-            # NO CHART IN REPORT MODE
         else:
-            # --- UI METRICS (Visual Summary) - NORMAL MODE ---
+            # --- NORMAL MODE ---
+            # Visual metrics
             m1, m2, m3, m4, m5, m6 = st.columns(6)
             m1.metric("Netter", f"{num_nights}")
             m2.metric("Snitt SE", f"{avg_se:.1f}%")
@@ -1494,38 +1523,23 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
 
             st.divider()
 
-            # --- TABLE GENERATION ---
-            table_md = "| Dato | SE | TST | TIB | WASO | Nap |\n"
-            table_md += "|---|---|---|---|---|---|\n"
-            
-            for _, row in filtered_df.sort_values("Date").iterrows():
-                d_str = row["Date"].strftime("%d.%m")
-                se_val = f"{row['SE']:.1f}%"
-                tst_str = fmt_hm(row['TST_min'])
-                tib_str = fmt_hm(row['TIB_min'])
-                w_sum = sum(a["duration_min"] for a in row["awakenings"])
-                nap_val = row.get("nap_minutes", 0)
-                table_md += f"| {d_str} | {se_val} | {tst_str} | {tib_str} | {w_sum}m | {nap_val}m |\n"
+            # Prepare text for copy/paste
+            copy_text = f"""### Rapport (søvndagbok)
+Periode: {start_date} – {end_date}
+Datagrunnlag: {num_nights} netter logget.
 
-            # --- TEXT REPORT ---
-            report_md = f"""### Rapport (søvndagbok)
-**Periode:** {start_date} – {end_date}
-**Datagrunnlag:** {num_nights} netter logget.
+Nøkkeltall (snitt):
+{metrics_md}
 
-#### Nøkkeltall (snitt):
-- **SE:** {avg_se:.1f}%
-- **TST:** {fmt_hm(avg_tst_min)}
-- **TIB:** {fmt_hm(avg_tib_min)}
-- **WASO:** {int(avg_waso)} min
-- **Nap:** {int(avg_nap_min)} min
+Dag-for-dag:
 
-#### Dag-for-dag:
 {table_md}
 """
-            st.markdown(report_md)
+            # Display readable markdown in UI
+            st.markdown(copy_text)
             
             with st.expander("Kopier rapporttekst"):
-                 st.code(report_md, language="markdown")
+                 st.code(copy_text, language="markdown")
 
     # --- MODE: CHART or NORMAL ---
     if print_mode == "chart":
