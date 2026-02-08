@@ -1,13 +1,13 @@
 # © 2026 Asbjørn Hval Bergestuen
 # Licensed under the MIT License. See the LICENSE file for details.
 
-import streamlit as st
+import streamlit as st  # type: ignore
 import json
 import os
 from datetime import datetime, time, date, timedelta
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import pandas as pd  # type: ignore
+import plotly.express as px  # type: ignore
+import plotly.graph_objects as go  # type: ignore
 
 # --- CONFIG ---
 st.set_page_config(page_title="Søvndagbok", layout="wide", page_icon="🌙")
@@ -136,14 +136,14 @@ class SleepDataManager:
                 "version": "2.0",
                 "settings": {
                     "target_wake": "07:00:00",
-                    "window_hours": 8.0
+                    "window_hours": 6.0
                 },
                 "window_history": [
                     {
                         "start_date": str(date.today()),
                         "end_date": None,
                         "target_wake": "07:00:00",
-                        "window_hours": 8.0
+                        "window_hours": 6.0
                     }
                 ]
             },
@@ -256,7 +256,7 @@ class SleepDataManager:
         if st.session_state.data:
             return st.session_state.data["meta"].get("settings", {
                 "target_wake": "07:00:00",
-                "window_hours": 8.0
+                "window_hours": 6.0
             })
         return None
 
@@ -314,8 +314,8 @@ def format_hours_as_hm(hours: float) -> str:
         return f"{h} t"
     return f"{h} t {m} min"
 
-# Slider options: 3 hours (180 min) to 12 hours (720 min) step 15
-WINDOW_OPTIONS = range(180, 735, 15)
+# Slider options: 5 hours (300 min) to 10 hours (600 min) step 15
+WINDOW_OPTIONS = range(300, 600, 15)
 def format_window_label(m):
     return f"{m//60}:{m%60:02d}"
 
@@ -360,7 +360,7 @@ def process_log_data(data_entries):
         tst_min = tst_seconds / 60
         
         se = (tst_min / tib_min * 100) if tib_min > 0 else 0
-        se = max(0, min(100, se))
+        se = max(0.0, min(100.0, float(se)))
         
         # Awakenings
         processed_awakenings = []
@@ -399,7 +399,7 @@ def process_log_data(data_entries):
 
 def render_landing_page(manager):
     render_custom_css()
-    st.title("🌙 Søvndagbok")
+    st.title("🌙 Søvndagbok - CBT-i")
     
     col1, col2 = st.columns(2)
     
@@ -409,7 +409,7 @@ def render_landing_page(manager):
             new_name = st.text_input("Ditt navn")
             filename = st.text_input("Filnavn", value="min_sovndagbok.json")
             save_dir = st.session_state.current_browser_dir
-            st.caption(f"Lagres i: {save_dir}")
+            st.caption(f"Lagres i: {save_dir} - VELG MAPPE TIL HØYRE ->>")
             
             if st.form_submit_button("Opprett ny"):
                 if manager.create_new_log(new_name, save_dir, filename):
@@ -420,7 +420,7 @@ def render_landing_page(manager):
         current_path = st.session_state.current_browser_dir
         st.text(f"📍 {current_path}")
         
-        if st.button("⬆️ Gå opp"):
+        if st.button("⬆️ Gå til mappen over"):
             st.session_state.current_browser_dir = os.path.dirname(current_path)
             st.rerun()
         
@@ -436,7 +436,7 @@ def render_landing_page(manager):
                     st.session_state.current_browser_dir = os.path.join(current_path, d)
                     st.rerun()
             
-            st.markdown("**Filer:**")
+            st.markdown("**Gyldige søvndagbokfiler:**")
             for f in files:
                 full_path = os.path.join(current_path, f)
                 if st.button(f"📄 {f}", key=f"file_{f}"):
@@ -519,7 +519,7 @@ def render_plan_view(manager):
     st.divider()
     
     # Editor in Expander
-    with st.expander("🛠️ Juster søvnplan-historikk"):
+    with st.expander("🛠️ Juster søvnplan-historikk. **GJØRES KUN I SAMRÅD MED BEHANDLER!**"):
         render_window_history_editor(manager)
 
     st.subheader("Historikk")
@@ -928,25 +928,21 @@ def render_viz_view(manager):
     st.subheader("Søvneffektivitet (SE)")
     
     fig_se = px.line(df, x="DateLabel", y="SE", markers=True)
-    fig_se.update_traces(line_color='#0067C5', marker=dict(size=9, line=dict(width=2, color='white')))
+    fig_se.update_traces(line_color='#0067C5', marker={"size": 9, "line": {"width": 2, "color": "white"}})
 
     fig_se.update_layout(
-        font=dict(color='#262626'), # Tving sort tekst
-        yaxis=dict(
-            range=[0, 105], 
-            title="SE (%)", 
-            showgrid=True, 
-            gridcolor='#D1D1D1',
-            zeroline=False
-        ),
-        xaxis=dict(
-            type='category',
-            title="Dato",
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='#D1D1D1' 
-        ),
-        legend=dict(font=dict(color='#262626'))
+        font_color="#262626", # Tving sort tekst
+        yaxis_range=[0, 105],
+        yaxis_title="SE (%)",
+        yaxis_showgrid=True,
+        yaxis_gridcolor="#D1D1D1",
+        yaxis_zeroline=False,
+        xaxis_type="category",
+        xaxis_title="Dato",
+        xaxis_showgrid=True,
+        xaxis_gridwidth=1,
+        xaxis_gridcolor="#D1D1D1",
+        legend_font_color="#262626"
     )
     fig_se.add_hline(y=85, line_dash="dash", line_color="#06893A", annotation_text="Mål (85%)")
     st.plotly_chart(fig_se, width="stretch")
@@ -1012,25 +1008,23 @@ def render_viz_view(manager):
     tick_text = [f"{(18 + h) % 24:02d}:00" for h in range(25)]
 
     fig_gantt.update_layout(
-        font=dict(color='#262626'),
+        font_color="#262626",
         barmode='overlay',
         height=max(400, len(df_rev)*60),
-        legend=dict(orientation="h", y=1.1, font=dict(color='#262626')),
-        yaxis=dict(
-            title="Dato",
-            type='category',
-            categoryorder='array',
-            categoryarray=df_rev["DateLabel"].tolist() # Tvinger rekkefølgen til å matche DataFramen
-        ),
-        xaxis=dict(
-            type='linear',
-            range=[0, TOTAL_MS], # FIXED RANGE 18:00 - 18:00
-            tickmode='array',
-            tickvals=tick_vals,
-            ticktext=tick_text,
-            showgrid=True,
-            gridcolor='#D1D1D1'
-        )
+        legend_orientation="h",
+        legend_y=1.1,
+        legend_font_color="#262626",
+        yaxis_title="Dato",
+        yaxis_type="category",
+        yaxis_categoryorder="array",
+        yaxis_categoryarray=df_rev["DateLabel"].tolist(), # Tvinger rekkefølgen til å matche DataFramen
+        xaxis_type="linear",
+        xaxis_range=[0, TOTAL_MS], # FIXED RANGE 18:00 - 18:00
+        xaxis_tickmode="array",
+        xaxis_tickvals=tick_vals,
+        xaxis_ticktext=tick_text,
+        xaxis_showgrid=True,
+        xaxis_gridcolor="#D1D1D1"
     )
     st.plotly_chart(fig_gantt, width="stretch")
 
@@ -1120,7 +1114,7 @@ def render_analysis_view(manager):
             break
             
     # Fallback if no active period found (should logically not happen if initialized correctly)
-    if not active_start_date:
+    if not active_start_date or not isinstance(active_start_date, str):
         # If dataset has dates, pick a very old one or just use all
         active_start_date = "2000-01-01"
 
@@ -1242,76 +1236,48 @@ def render_analysis_view(manager):
     st.divider()
     st.subheader("Etterlevelse av søvnvindu")
     
-    adherent_days = 0
-    total_days_checked = 0
+    adherent_days: int = 0
+    total_days_checked: int = 0
     
     # Calculate adherence for relevant days
-    for _, row in relevant_df.iterrows():
-        log_date = row["Date"]
-        
-        # Get plan for this specific date
-        plan = manager.get_window_for_date(log_date)
+    def check_row_adherence(row) -> bool:
         try:
+            log_date = row["Date"]
+            plan = manager.get_window_for_date(log_date)
+            
             target_wake = time.fromisoformat(plan["target_wake"])
             window_hours = plan["window_hours"]
             
-            # Calculate Planned Bed Time
-            # Logic: Target Wake - Window. 
-            # Needs datetime for math, using arbitrary date
+            # Logic: Target Wake - Window
             dummy_date = date(2000, 1, 1)
             wake_dt = datetime.combine(dummy_date, target_wake)
             plan_bed_dt = wake_dt - timedelta(hours=window_hours)
             
-            # Actual Bed Time (from processed row)
-            # Row has 'bed_dt', but that includes specific date info. 
-            # We need to normalize to compare time-of-day roughly OR use the full datetimes if we trust the rotation.
-            # processed_log_data uses 'bed_dt' which is correct absolute time. 
-            
-            # We should construct absolute planned bed time for that specific date
-            # Wake target is usually Next Day morning unless log_date is the wake date? 
-            # Usually log date matches the wake up morning in this app's convention (or night start?)
-            # Let's check 'process_log_data':
-            # log_date is 'Date' column.
-            # wake_dt in row is calculated from log_date + wake_up time (if wake < 18).
-            # So log_date is the main date identifier.
-            
             # Re-construct absolute planned wake for this log entry
-            # If target_wake is morning (e.g. 07:00), it belongs to the morning of log_date + 1 day?
-            # Wait, how does `process_log_data` work?
-            # "bed_dt = get_dt(bed_time, log_date)" -> if bed_time >= 18, it's log_date 18:00+. 
-            # "wake_dt = get_dt(wake_up, log_date)" -> if wake_up < 18, it's log_date + 1 day.
-            
-            # So if I set Target Wake 07:00 for "2023-01-01", I expect to wake up 07:00 on "2023-01-02".
-            # The window starts evening of "2023-01-01".
-            
-            # Let's assume the plan applies to the "night starting on log_date".
-            
-            # Target Wake Date = log_date + 1 day (standard morning wake)
-            # Planned Wake DT = (log_date + 1) @ target_wake
             target_wake_dt = datetime.combine(log_date + timedelta(days=1), target_wake)
-            
-            # Planned Bed DT = Target Wake DT - Window
             planned_bed_dt = target_wake_dt - timedelta(hours=window_hours)
             
-            # Actual Bed DT
             actual_bed_dt = row["bed_dt"]
+            actual_out_dt = row["out_dt"]
             
-            # Diff in minutes
-            diff_seconds = abs((actual_bed_dt - planned_bed_dt).total_seconds())
-            diff_minutes = diff_seconds / 60
+            bed_diff_seconds = abs((actual_bed_dt - planned_bed_dt).total_seconds())
+            bed_diff_min = bed_diff_seconds / 60
             
-            if diff_minutes <= 30:
-                adherent_days += 1
+            wake_diff_seconds = abs((actual_out_dt - target_wake_dt).total_seconds())
+            wake_diff_min = wake_diff_seconds / 60
             
-            total_days_checked += 1
-            
-        except Exception as e:
-            # Fallback if calculation fails
-            pass
+            return bed_diff_min <= 30 and wake_diff_min <= 30
+        except Exception:
+            return False
+
+    results = [check_row_adherence(row) for _, row in relevant_df.iterrows()]
+    adherent_days = sum(results)
+    total_days_checked = len(results)
             
     if total_days_checked > 0:
         c1, c2 = st.columns(2)
         c1.metric("Netter innenfor vindu (±30 min)", f"{adherent_days} / {total_days_checked}")
+        st.caption("Dette målet handler kun om du legger deg og står opp til planlagt tid (±30 min), ikke om hvor lenge du sover.")
         
         adherence_rate = adherent_days / total_days_checked
         
@@ -1320,12 +1286,12 @@ def render_analysis_view(manager):
                 # High adherence, high SE -> Ready to expand?
                 st.success("🌟 Du er veldig flink til å holde vinduet ditt! Kombinert med høy søvneffektivitet, er du i god posisjon til å utvide vinduet hvis du føler deg uthvilt.")
             else:
-                # High adherence, low SE -> Keep going
-                st.info("👍 God etterlevelse av vinduet. Fortsett med det, så vil søvneffektiviteten sannsynligvis bedres over tid.")
+                # High adherence, low SE -> Supportive, normalizing message
+                st.info("👍 Du følger søvnvinduet ditt svært godt. Det er helt normalt at søvneffektiviteten kan være lav en periode selv om du gjør alt riktig. Fortsett å holde tider for legging og oppvåkning, så vil vi bruke analysen over tid til å vurdere små justeringer.")
         elif adherence_rate < 0.3: # Low adherence
-             st.warning("⚠️ Mange avvik fra planlagt søvnvindu. For å få effekt av behandlingen er det avgjørende at du legger deg og står opp til planlagt tid (±30 min).")
+             st.warning("⚠️ Mange kvelder og morgener ligger mer enn ±30 minutter fra planen for leggetid og oppvåkning. For å få effekt av søvnbegrensningen er det viktig at du fokuserer på tidspunktet for seng og oppvåkning, selv om søvnen ennå ikke kommer som ønsket.")
         else:
-             st.info("Du treffer vinduet noen netter, men prøv å bli enda mer konsekvent.")
+             st.info("Du treffer vinduet noen netter, men prøv å bli enda mer konsekvent på tider for å legge deg og stå opp.")
     else:
         st.caption("Ikke nok data til å beregne etterlevelse.")
 

@@ -5,22 +5,22 @@
         "version": "2.0",
         "settings": {
             "target_wake": "07:00:00",
-            "window_hours": 6.0
+            "window_hours": 5.0
         },
         "window_history": [
             {
-                "start_date": "2026-02-07",
+                "start_date": "2026-01-28",
                 "end_date": null,
                 "target_wake": "07:00:00",
-                "window_hours": 6.0
+                "window_hours": 5.0
             }
         ]
     },
     "entries": {
         "2026-02-01": {
-            "bed_time": "01:00:00",
+            "bed_time": "02:00:00",
             "out_of_bed": "07:00:00",
-            "lights_out": "01:15:00",
+            "lights_out": "02:00:00",
             "sleep_onset": "02:15:00",
             "wake_up": "06:15:00",
             "awakenings": [
@@ -33,48 +33,40 @@
             "nap_minutes": 10
         },
         "2026-02-02": {
-            "bed_time": "01:00:00",
+            "bed_time": "02:00:00",
             "out_of_bed": "07:00:00",
-            "lights_out": "01:15:00",
-            "sleep_onset": "02:45:00",
+            "lights_out": "02:00:00",
+            "sleep_onset": "03:30:00",
             "wake_up": "06:45:00",
             "awakenings": [
                 {
                     "time": "03:00:00",
                     "duration_min": 10
-                },
-                {
-                    "time": "03:45:00",
-                    "duration_min": 15
                 }
             ],
-            "waso_minutes": 25,
+            "waso_minutes": 10,
             "nap_minutes": 10
         },
         "2026-02-03": {
-            "bed_time": "01:00:00",
+            "bed_time": "02:00:00",
             "out_of_bed": "07:00:00",
-            "lights_out": "01:15:00",
-            "sleep_onset": "02:45:00",
+            "lights_out": "02:00:00",
+            "sleep_onset": "03:15:00",
             "wake_up": "06:15:00",
             "awakenings": [
                 {
                     "time": "03:15:00",
                     "duration_min": 10
-                },
-                {
-                    "time": "04:30:00",
-                    "duration_min": 10
                 }
             ],
-            "waso_minutes": 20,
+            "waso_minutes": 10,
             "nap_minutes": 25
         },
         "2026-02-04": {
-            "bed_time": "01:00:00",
+            "bed_time": "02:00:00",
             "out_of_bed": "07:00:00",
-            "lights_out": "01:15:00",
-            "sleep_onset": "02:30:00",
+            "lights_out": "02:00:00",
+            "sleep_onset": "03:30:00",
             "wake_up": "06:45:00",
             "awakenings": [
                 {
@@ -86,10 +78,10 @@
             "nap_minutes": 10
         },
         "2026-02-05": {
-            "bed_time": "01:00:00",
+            "bed_time": "02:00:00",
             "out_of_bed": "07:00:00",
-            "lights_out": "01:15:00",
-            "sleep_onset": "02:00:00",
+            "lights_out": "02:00:00",
+            "sleep_onset": "02:45:00",
             "wake_up": "06:30:00",
             "awakenings": [
                 {
@@ -99,29 +91,45 @@
                 {
                     "time": "03:45:00",
                     "duration_min": 10
-                },
-                {
-                    "time": "04:15:00",
-                    "duration_min": 8
                 }
             ],
-            "waso_minutes": 23,
+            "waso_minutes": 15,
             "nap_minutes": 20
         },
         "2026-02-06": {
-            "bed_time": "01:00:00",
+            "bed_time": "02:00:00",
             "out_of_bed": "07:00:00",
-            "lights_out": "01:15:00",
-            "sleep_onset": "02:30:00",
+            "lights_out": "02:00:00",
+            "sleep_onset": "03:15:00",
             "wake_up": "06:15:00",
             "awakenings": [
                 {
-                    "time": "03:00:00",
+                    "time": "03:45:00",
                     "duration_min": 10
                 }
             ],
             "waso_minutes": 10,
             "nap_minutes": 20
+        },
+        "2026-02-08": {
+            "bed_time": "02:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "02:00:00",
+            "sleep_onset": "04:00:00",
+            "wake_up": "07:00:00",
+            "awakenings": [],
+            "waso_minutes": 0,
+            "nap_minutes": 0
+        },
+        "2026-02-07": {
+            "bed_time": "02:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "02:00:00",
+            "sleep_onset": "03:30:00",
+            "wake_up": "07:00:00",
+            "awakenings": [],
+            "waso_minutes": 0,
+            "nap_minutes": 0
         }
     }
 }
