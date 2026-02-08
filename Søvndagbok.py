@@ -1,13 +1,15 @@
 # © 2026 Asbjørn Hval Bergestuen
 # Licensed under the MIT License. See the LICENSE file for details.
 
-import streamlit as st  # type: ignore
 import json
 import os
 from datetime import datetime, time, date, timedelta
+from typing import Dict, Any, List, Optional
+
 import pandas as pd  # type: ignore
 import plotly.express as px  # type: ignore
 import plotly.graph_objects as go  # type: ignore
+import streamlit as st  # type: ignore
 
 # --- CONFIG ---
 st.set_page_config(page_title="Søvndagbok", layout="wide", page_icon="🌙")
@@ -111,6 +113,42 @@ def render_custom_css():
     [data-testid="stSidebar"] {
         background-color: #d4edda !important; /* Success Green */
         border-right: 1px solid #E0E0E0;
+    }
+
+    /* 11. Print Specific Styles */
+    @media print {
+        /* Nullstill marginer på selve siden */
+        @page {
+            margin: 0.5cm; /* Liten marg rundt hele arket */
+        }
+        
+        /* Tving hovedcontainer helt til toppen */
+        .main .block-container {
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            margin-top: 0 !important;
+            max-width: 100% !important;
+        }
+        
+        /* Skjul header fullstendig */
+        header {
+            display: none !important;
+            height: 0 !important;
+        }
+        
+        /* Skjul Streamlits innebygde padding-elementer */
+        div[data-testid="stVerticalBlock"] > div:first-child {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+        }
+        
+        /* Juster overskrifter for print */
+        h1, h2, h3 {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -319,7 +357,17 @@ WINDOW_OPTIONS = range(300, 600, 15)
 def format_window_label(m):
     return f"{m//60}:{m%60:02d}"
 
-def process_log_data(data_entries):
+def process_log_data(data_entries: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Processes raw log entries into a structured DataFrame for analysis and visualization.
+    
+    Args:
+        data_entries: Dictionary of log entries, keyed by date string (YYYY-MM-DD).
+        
+    Returns:
+        pd.DataFrame: DataFrame containing processed sleep metrics (SE, TST, TIB, etc.)
+                      and datetime objects for sleep events. Returns empty DataFrame if input is empty.
+    """
     if not data_entries:
         return pd.DataFrame()
 
@@ -397,6 +445,114 @@ def process_log_data(data_entries):
 
 # --- UI COMPONENTS ---
 
+
+def build_sleep_gantt_figure(df, for_print=False):
+    """
+    Bygger Gantt/døgnrytmefigur for søvnmønster. Forventer kolonner:
+    DateLabel, bed_dt, out_dt, onset_dt, wake_dt, awakenings (liste), m.m.
+    Returnerer en ferdig konfigurert go.Figure.
+    """
+    # Helper to normalize time for visualization (18:00 - 18:00)
+    def normalize(dt_obj):
+        base_d1 = date(2000, 1, 1)
+        base_d2 = date(2000, 1, 2)
+        t = dt_obj.time()
+        if t.hour >= 16:
+            return datetime.combine(base_d1, t)
+        else:
+            return datetime.combine(base_d2, t)
+
+    fig_gantt = go.Figure()
+
+    if df.empty:
+        return fig_gantt
+
+    # LEGEND HACK
+    first_y = df["DateLabel"].iloc[0]
+    fig_gantt.add_trace(go.Bar(y=[first_y], x=[0], name="Tid i seng", marker_color='#E0E0E0', showlegend=True))
+    fig_gantt.add_trace(go.Bar(y=[first_y], x=[0], name="Søvn", marker_color='#0067C5', showlegend=True))
+    fig_gantt.add_trace(go.Bar(y=[first_y], x=[0], name="Våken", marker_color='#C30000', showlegend=True))
+
+    df_rev = df.sort_values("Date", ascending=False)
+
+    MS_PER_HOUR = 3600 * 1000
+    TOTAL_MS = 24 * MS_PER_HOUR
+    base_start = datetime(2000, 1, 1, 18, 0)
+
+    def get_offset(dt_full):
+        norm_dt = normalize(dt_full)
+        diff = (norm_dt - base_start).total_seconds() * 1000
+        return diff
+
+    for _, row in df_rev.iterrows():
+        d_label = row["DateLabel"]
+
+        # Helper to draw bars
+        def draw_bar(start, end, color, legend_group):
+            start_off = get_offset(start)
+            end_off = get_offset(end)
+            dur = end_off - start_off
+            if dur > 0:
+                fig_gantt.add_trace(go.Bar(
+                    y=[d_label], x=[dur], base=[start_off],
+                    orientation='h', marker_color=color,
+                    showlegend=False, hoverinfo="x+y"
+                ))
+
+        # 1. Base Bed Time
+        draw_bar(row["bed_dt"], row["out_dt"], '#E0E0E0', 'bed')
+        # 2. Sleep Time (approximated as Bed + Latency to Wake)
+        draw_bar(row["onset_dt"], row["wake_dt"], '#0067C5', 'sleep')
+        
+        # 3. Awakenings
+        for awak in row["awakenings"]:
+            start_off = get_offset(awak["start"])
+            dur_ms = awak["duration_min"] * 60 * 1000
+            fig_gantt.add_trace(go.Bar(
+                y=[d_label], x=[dur_ms], base=[start_off],
+                orientation='h', marker_color='#C30000',
+                showlegend=False, width=0.6
+            ))
+
+    # TICKS
+    tick_vals = [h * MS_PER_HOUR for h in range(25)]
+    tick_text = [f"{(18 + h) % 24:02d}:00" for h in range(25)]
+
+    # Layout config
+    # Using dictionary literal to avoid Pyre errors with mixed value types
+    layout_args: Dict[str, Any] = {
+        "font_color": "#262626",
+        "barmode": "overlay",
+        "legend_orientation": "h",
+        "legend_y": 1.1,
+        "legend_font_color": "#262626",
+        "yaxis_title": "Dato",
+        "yaxis_type": "category",
+        "yaxis_categoryorder": "array",
+        "yaxis_categoryarray": df_rev["DateLabel"].tolist(),
+        "xaxis_type": "linear",
+        "xaxis_range": [0, TOTAL_MS],  # FIXED RANGE 18:00 - 18:00
+        "xaxis_tickmode": "array",
+        "xaxis_tickvals": tick_vals,
+        "xaxis_ticktext": tick_text,
+        "xaxis_showgrid": True,
+        "xaxis_gridcolor": "#D1D1D1",
+    }
+
+    if for_print:
+        # Compact sizing for print
+        # Approx 300px or minimal height per row + buffer
+        layout_args["height"] = max(300, len(df_rev) * 25 + 100)
+        layout_args["margin"] = {"l": 20, "r": 20, "t": 30, "b": 20}
+        # Maybe smaller font?
+        layout_args["font"] = {"size": 10}
+    else:
+        # Standard sizing
+        layout_args["height"] = max(400, len(df_rev) * 60)
+    
+    fig_gantt.update_layout(**layout_args)
+    return fig_gantt
+
 def render_landing_page(manager):
     render_custom_css()
     st.title("🌙 Søvndagbok - CBT-i")
@@ -453,26 +609,28 @@ def render_main_app(manager):
     
     with st.sidebar:
         st.markdown(f"### 👤 {meta['name']}")
-        mode = st.radio("Meny", ["📅 Plan", "✍️ Loggføring", "📊 Visualisering", "📈 Analyse", "📂 Rådata"])
+        mode = st.radio("Meny", ["📅 Din søvnplan", "🏠 Loggføring", "📊 Visualisering", "📈 Analyse og råd", "📝 Rapporter og utskrifter", "📂 Rådata"])
         st.divider()
         if st.button("Lukk Dagbok"):
             st.session_state.data = None
             st.session_state.filepath = None
             st.rerun()
 
-    if mode == "📅 Plan":
-        render_plan_view(manager)
-    elif mode == "✍️ Loggføring":
+    if mode == "📅 Din søvnplan":
+         render_plan_view(manager)
+    elif mode == "🏠 Loggføring":
         render_logging_view(manager)
     elif mode == "📊 Visualisering":
         render_viz_view(manager)
-    elif mode == "📈 Analyse":
-        render_analysis_view(manager)
+    elif mode == "📈 Analyse og råd":
+         render_analysis_view(manager)
+    elif mode == "📝 Rapporter og utskrifter":
+         render_weekly_report_view(manager)
     elif mode == "📂 Rådata":
-        render_rawdata_view(manager)
+         render_rawdata_view(manager)
 
 def render_plan_view(manager):
-    st.header("📅 Din Søvnplan")
+    st.header("📅 Din søvnplan")
     st.info("Sett dine mål her. Disse brukes som standardverdier i loggen.")
     
     current_settings = manager.get_settings()
@@ -512,7 +670,7 @@ def render_plan_view(manager):
         # New: Valid from info
         st.info(f"ℹ️ Endringen i søvnvindu gjelder fra og med **{date.today()}**.")
         
-        if st.form_submit_button("Lagre Plan"):
+        if st.form_submit_button("Lagre plan"):
             manager.save_settings(target_wake, window_hours)
 
     # New: History Table
@@ -561,6 +719,10 @@ def render_plan_view(manager):
 
 
 def render_window_history_editor(manager):
+    """
+    Renders an interactive editor for the sleep window history.
+    Allows users to modify start/end dates, target wake times, and window durations for past periods.
+    """
     st.info("Her kan du korrigere historikken. Endringer påvirker statistikk og anbefalinger.")
     
     history = manager.get_window_history()
@@ -718,7 +880,7 @@ def render_window_history_editor(manager):
             st.rerun()
 
 def render_logging_view(manager):
-    st.header("✍️ Daglig Loggføring")
+    st.header("✍️ Daglig loggføring")
     
     def load_data_for_date():
         current_date = st.session_state.log_date
@@ -869,7 +1031,7 @@ def render_logging_view(manager):
     
     st.divider()
 
-    if st.button("💾 Lagre Dagbok", type="primary"):
+    if st.button("💾 Lagre dagbok", type="primary"):
         final_awakenings = []
         for w in st.session_state.current_wakeups:
             final_awakenings.append({
@@ -902,6 +1064,10 @@ def render_logging_view(manager):
         st.rerun()
 
 def render_viz_view(manager):
+    """
+    Renders the Visualization view, displaying graphs for Sleep Efficiency (SE) and Sleep Pattern (Gantt).
+    Includes date filtering options ("Last 7 days" or custom range).
+    """
     st.header("📊 Visualisering")
     data = st.session_state.data["entries"]
     if not data:
@@ -914,15 +1080,35 @@ def render_viz_view(manager):
         st.info("Ingen gyldige data.")
         return
 
-    # --- NORMALIZATION LOGIC (FOR GANTT) ---
-    def normalize(dt_obj):
-        base_d1 = date(2000, 1, 1)
-        base_d2 = date(2000, 1, 2)
-        t = dt_obj.time()
-        if t.hour >= 16:
-            return datetime.combine(base_d1, t)
+    # --- DATE FILTER ---
+    st.write("") # Spacer
+    c_filter, c_info = st.columns([1, 2])
+    
+    with c_filter:
+        filter_mode = st.radio("Periode", ["Siste 7 dager", "Velg periode"], horizontal=True, label_visibility="collapsed")
+        
+    start_date = date.today() - timedelta(days=7)
+    end_date = date.today() - timedelta(days=1)
+    
+    with c_info:
+        if filter_mode == "Siste 7 dager":
+            st.caption(f"Viser datasett for siste uke ({start_date} til {end_date}).")
         else:
-            return datetime.combine(base_d2, t)
+            c_start, c_end = st.columns(2)
+            # Default custom range: last 14 days
+            def_start = date.today() - timedelta(days=14)
+            start_date = c_start.date_input("Fra dato", value=def_start)
+            end_date = c_end.date_input("Til dato", value=date.today() - timedelta(days=1))
+            
+    # Apply Filter
+    # Ensure dataframe Date column is comparable
+    mask = (df["Date"] >= start_date) & (df["Date"] <= end_date)
+    df = df.loc[mask]
+    
+    if df.empty:
+        st.info(f"Ingen data funnet i perioden {start_date} til {end_date}.")
+        return
+
 
     # --- GRAF 1: SE ---
     st.subheader("Søvneffektivitet (SE)")
@@ -952,80 +1138,7 @@ def render_viz_view(manager):
     st.subheader("Døgnrytme (Søvnmønster)")
     st.caption("Viser hele døgnet fra 18:00 til 18:00.")
 
-    fig_gantt = go.Figure()
-
-    # LEGEND HACK
-    first_y = df["DateLabel"].iloc[0]
-    fig_gantt.add_trace(go.Bar(y=[first_y], x=[0], name="Tid i seng", marker_color='#E0E0E0', showlegend=True))
-    fig_gantt.add_trace(go.Bar(y=[first_y], x=[0], name="Søvn", marker_color='#0067C5', showlegend=True))
-    fig_gantt.add_trace(go.Bar(y=[first_y], x=[0], name="Våken", marker_color='#C30000', showlegend=True))
-
-    df_rev = df.sort_values("Date", ascending=False)
-
-    MS_PER_HOUR = 3600 * 1000
-    TOTAL_MS = 24 * MS_PER_HOUR
-    base_start = datetime(2000, 1, 1, 18, 0)
-
-    def get_offset(dt_full):
-        norm_dt = normalize(dt_full)
-        diff = (norm_dt - base_start).total_seconds() * 1000
-        return diff
-
-    for _, row in df_rev.iterrows():
-        d_label = row["DateLabel"]
-
-        # Helper to draw bars
-        def draw_bar(start, end, color, legend_group):
-            start_off = get_offset(start)
-            end_off = get_offset(end)
-            dur = end_off - start_off
-            if dur > 0:
-                fig_gantt.add_trace(go.Bar(
-                    y=[d_label], x=[dur], base=[start_off],
-                    orientation='h', marker_color=color,
-                    showlegend=False, hoverinfo="x+y"
-                ))
-
-        # 1. Base Bed Time
-        draw_bar(row["bed_dt"], row["out_dt"], '#E0E0E0', 'bed')
-        # 2. Sleep Time (approximated as Bed + Latency to Wake) - simplified visualization
-        # Ideally: Bed->Lights->Onset->Wake->Out
-        # Let's draw Onset to Wake as Blue
-        draw_bar(row["onset_dt"], row["wake_dt"], '#0067C5', 'sleep')
-        
-        # 3. Awakenings
-        for awak in row["awakenings"]:
-            start_off = get_offset(awak["start"])
-            dur_ms = awak["duration_min"] * 60 * 1000
-            fig_gantt.add_trace(go.Bar(
-                y=[d_label], x=[dur_ms], base=[start_off],
-                orientation='h', marker_color='#C30000',
-                showlegend=False, width=0.6
-            ))
-
-    # TICKS
-    tick_vals = [h * MS_PER_HOUR for h in range(25)]
-    tick_text = [f"{(18 + h) % 24:02d}:00" for h in range(25)]
-
-    fig_gantt.update_layout(
-        font_color="#262626",
-        barmode='overlay',
-        height=max(400, len(df_rev)*60),
-        legend_orientation="h",
-        legend_y=1.1,
-        legend_font_color="#262626",
-        yaxis_title="Dato",
-        yaxis_type="category",
-        yaxis_categoryorder="array",
-        yaxis_categoryarray=df_rev["DateLabel"].tolist(), # Tvinger rekkefølgen til å matche DataFramen
-        xaxis_type="linear",
-        xaxis_range=[0, TOTAL_MS], # FIXED RANGE 18:00 - 18:00
-        xaxis_tickmode="array",
-        xaxis_tickvals=tick_vals,
-        xaxis_ticktext=tick_text,
-        xaxis_showgrid=True,
-        xaxis_gridcolor="#D1D1D1"
-    )
+    fig_gantt = build_sleep_gantt_figure(df)
     st.plotly_chart(fig_gantt, width="stretch")
 
 def render_rawdata_view(manager):
@@ -1091,7 +1204,12 @@ def render_rawdata_view(manager):
     )
 
 def render_analysis_view(manager):
-    st.header("📈 Analyse & Råd (CBT-i)")
+    """
+    Renders the Analysis & Advice view (CBT-i).
+    Calculates sleep metrics based on the active window history and provides
+    recommendations for adjusting the sleep window based on Sleep Efficiency (SE).
+    """
+    st.header("📈 Analyse og råd (CBT-i)")
     data_entries = st.session_state.data["entries"]
     df = process_log_data(data_entries)
     
@@ -1100,8 +1218,9 @@ def render_analysis_view(manager):
         return
         
     # --- 1. FILTERING BASED ON ACTIVE WINDOW ---
-    # Start with last 7 days (standard analysis window)
-    recent = df.tail(7)
+    # Start with last 7 days (standard analysis window), excluding today
+    history_df = df[df["Date"] < date.today()]
+    recent = history_df.tail(7)
 
     # Retrieve history to find active start date
     history = manager.get_window_history()
@@ -1284,7 +1403,7 @@ def render_analysis_view(manager):
         if adherence_rate >= 0.7: # Approx 5/7 days
             if avg_se > 85:
                 # High adherence, high SE -> Ready to expand?
-                st.success("🌟 Du er veldig flink til å holde vinduet ditt! Kombinert med høy søvneffektivitet, er du i god posisjon til å utvide vinduet hvis du føler deg uthvilt.")
+                st.success("🌟 Du er veldig flink til å holde vinduet ditt! Kombinert med høy søvneffektivitet, er du i god posisjon til å utvide vinduet hvis du kjenner at du trenger mer søvn.")
             else:
                 # High adherence, low SE -> Supportive, normalizing message
                 st.info("👍 Du følger søvnvinduet ditt svært godt. Det er helt normalt at søvneffektiviteten kan være lav en periode selv om du gjør alt riktig. Fortsett å holde tider for legging og oppvåkning, så vil vi bruke analysen over tid til å vurdere små justeringer.")
@@ -1295,7 +1414,7 @@ def render_analysis_view(manager):
     else:
         st.caption("Ikke nok data til å beregne etterlevelse.")
 
-    st.caption("Oppdater målene dine under 'Plan' i menyen.")
+    st.caption("Oppdater målene dine under 'Din søvnplan' i menyen.")
 
     # --- CONTROL TABLE ---
     st.divider()
@@ -1314,6 +1433,239 @@ def render_analysis_view(manager):
             hide_index=True,
             width="stretch"
         )
+
+def render_report_content(filtered_df, start_date, end_date, print_mode=False):
+    """
+    Renders report content based on print_mode:
+    - False: Normal view (metrics, table, chart)
+    - "report": Text-only print (metrics, table - no chart)
+    - "chart": Chart-only print (just the Gantt chart)
+    """
+    # --- METRICS CALCULATION ---
+    avg_se = filtered_df["SE"].mean()
+    avg_tst_min = filtered_df["TST_min"].mean()
+    def fmt_hm(m): return f"{int(m // 60)}t {int(m % 60)}m"
+    avg_tib_min = filtered_df["TIB_min"].mean()
+    
+    total_waso_list = []
+    for _, row in filtered_df.iterrows():
+        w_sum = sum(a["duration_min"] for a in row["awakenings"])
+        total_waso_list.append(w_sum)
+        
+    avg_waso = sum(total_waso_list) / len(total_waso_list) if total_waso_list else 0
+    num_nights = len(filtered_df)
+    avg_nap_min = filtered_df["nap_minutes"].mean() if "nap_minutes" in filtered_df.columns else 0
+
+    # --- MODE: TEXT REPORT or NORMAL ---
+    if print_mode == "report" or not print_mode:
+        if print_mode == "report":
+            # --- COMPACT METRICS FOR PRINT ---
+            st.markdown(f"""
+**Periode:** {start_date} – {end_date} | **Netter:** {num_nights}
+
+**Snitt:** SE: {avg_se:.1f}% | TST: {fmt_hm(avg_tst_min)} | TIB: {fmt_hm(avg_tib_min)} | WASO: {int(avg_waso)} min | Nap: {int(avg_nap_min)} min
+            """)
+            st.divider()
+
+            # --- TABLE GENERATION ---
+            table_md = "| Dato | SE | TST | TIB | WASO | Nap |\n"
+            table_md += "|---|---|---|---|---|---|\n"
+            
+            for _, row in filtered_df.sort_values("Date").iterrows():
+                d_str = row["Date"].strftime("%d.%m")
+                se_val = f"{row['SE']:.1f}%"
+                tst_str = fmt_hm(row['TST_min'])
+                tib_str = fmt_hm(row['TIB_min'])
+                w_sum = sum(a["duration_min"] for a in row["awakenings"])
+                nap_val = row.get("nap_minutes", 0)
+                table_md += f"| {d_str} | {se_val} | {tst_str} | {tib_str} | {w_sum}m | {nap_val}m |\n"
+
+            st.markdown(f"#### Dag-for-dag:\n{table_md}")
+            # NO CHART IN REPORT MODE
+        else:
+            # --- UI METRICS (Visual Summary) - NORMAL MODE ---
+            m1, m2, m3, m4, m5, m6 = st.columns(6)
+            m1.metric("Netter", f"{num_nights}")
+            m2.metric("Snitt SE", f"{avg_se:.1f}%")
+            m3.metric("Snitt TST", fmt_hm(avg_tst_min))
+            m4.metric("Snitt TIB", fmt_hm(avg_tib_min))
+            m5.metric("Snitt WASO", f"{int(avg_waso)} min")
+            m6.metric("Snitt Nap", f"{int(avg_nap_min)} min")
+
+            st.divider()
+
+            # --- TABLE GENERATION ---
+            table_md = "| Dato | SE | TST | TIB | WASO | Nap |\n"
+            table_md += "|---|---|---|---|---|---|\n"
+            
+            for _, row in filtered_df.sort_values("Date").iterrows():
+                d_str = row["Date"].strftime("%d.%m")
+                se_val = f"{row['SE']:.1f}%"
+                tst_str = fmt_hm(row['TST_min'])
+                tib_str = fmt_hm(row['TIB_min'])
+                w_sum = sum(a["duration_min"] for a in row["awakenings"])
+                nap_val = row.get("nap_minutes", 0)
+                table_md += f"| {d_str} | {se_val} | {tst_str} | {tib_str} | {w_sum}m | {nap_val}m |\n"
+
+            # --- TEXT REPORT ---
+            report_md = f"""### Rapport (søvndagbok)
+**Periode:** {start_date} – {end_date}
+**Datagrunnlag:** {num_nights} netter logget.
+
+#### Nøkkeltall (snitt):
+- **SE:** {avg_se:.1f}%
+- **TST:** {fmt_hm(avg_tst_min)}
+- **TIB:** {fmt_hm(avg_tib_min)}
+- **WASO:** {int(avg_waso)} min
+- **Nap:** {int(avg_nap_min)} min
+
+#### Dag-for-dag:
+{table_md}
+"""
+            st.markdown(report_md)
+            
+            with st.expander("Kopier rapporttekst"):
+                 st.code(report_md, language="markdown")
+
+    # --- MODE: CHART or NORMAL ---
+    if print_mode == "chart":
+        user_name = st.session_state.data['meta']['name']
+        st.markdown(f'<h3 style="margin-bottom: 0.2em;">Døgnrytme: {user_name} ({start_date} – {end_date})</h3>', unsafe_allow_html=True)
+        # Tip for landscape printing (hidden in print CSS)
+        st.caption("Tips: Velg 'Liggende' papirretning i utskriftsdialogen.")
+        
+        fig_gantt = build_sleep_gantt_figure(filtered_df, for_print=True)
+        # Landscape size for print - compressed to fit A4
+        fig_gantt.update_layout(
+            width=880, 
+            height=420,
+            margin={"l": 10, "r": 10, "t": 10, "b": 10},
+            font={"size": 10}
+        )
+        st.plotly_chart(fig_gantt, width="content")
+        
+    elif not print_mode:
+        # NORMAL MODE - show chart
+        st.subheader("Døgnrytme for perioden")
+        fig_gantt = build_sleep_gantt_figure(filtered_df, for_print=False)
+        st.plotly_chart(fig_gantt, width="stretch")
+        st.caption("Forklaring: SE = Søvneffektivitet, TST = Total Søvntid, TIB = Tid i Seng, WASO = Tid våken etter innsovning.")
+
+# --- WEEKLY REPORT VIEW ---
+def render_weekly_report_view(manager):
+    """
+    Renders the Reports & Print view.
+    Handles 'print_mode' state to toggle between the interactive app view and properly formatted
+    print layouts (Text Report or Gantt Chart).
+    """
+    # CHECK PRINT MODE (False, "report", or "chart")
+    print_mode = st.session_state.get("print_mode", False)
+    
+    if print_mode:
+        # Hide Sidebar & Header
+        st.markdown("""
+        <style>
+            [data-testid="stSidebar"] { display: none; }
+            @media print {
+                .stButton, header, footer, .stCaption { display: none !important; }
+                /* Tving hovedcontainer til A4-bredde og fjern padding */
+                .main .block-container {
+                    padding: 10mm !important;
+                    margin: 0 auto !important;
+                }
+                /* Skaler ned innholdet litt for å få plass til mer vertikalt */
+                body {
+                    font-size: 12pt !important;
+                    overflow: hidden; /* Skjul scrollbars på utskrift */
+                }
+                /* Tving Plotly til å respektere bredden */
+                .stPlotlyChart {
+                    width: 100% !important;
+                }
+                /* Sørg for at Plotly-grafen ikke blør utover */
+                .js-plotly-plot, .plot-container {
+                    width: 100% !important;
+                }
+            }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        if st.button("🔙 Tilbake til appen"):
+            st.session_state.print_mode = False
+            st.rerun()
+
+    if not print_mode:
+        st.header("📝 Rapporter og utskrifter")
+    else:
+        if print_mode == "report":
+            st.markdown("## Rapport (søvndagbok)")
+            st.markdown(f"**Navn:** {st.session_state.data['meta']['name']}")
+        # Chart mode gets its title in render_report_content
+    
+    data = st.session_state.data["entries"]
+    if not data:
+        st.info("Ingen data å vise.")
+        return
+
+    # --- PROCESS DATA ---
+    df = process_log_data(data)
+    if df.empty:
+        st.info("Ingen gyldige data.")
+        return
+        
+    start_date = date.today() - timedelta(days=7)
+    end_date = date.today() - timedelta(days=1)
+
+    if not print_mode:
+        # --- DATE FILTER (Normal Mode) ---
+        st.write("") 
+        c_filter, c_info = st.columns([1, 2])
+        
+        with c_filter:
+            filter_mode = st.radio("Periode", ["Siste 7 dager", "Velg periode"], horizontal=True, label_visibility="collapsed", key="report_period")
+            
+        with c_info:
+            if filter_mode == "Siste 7 dager":
+                st.caption(f"Viser rapport for siste uke ({start_date} til {end_date}).")
+                st.session_state["report_start"] = start_date
+                st.session_state["report_end"] = end_date
+            else:
+                c_start, c_end = st.columns(2)
+                def_start = date.today() - timedelta(days=14)
+                start_date = c_start.date_input("Fra dato", value=def_start, key="rep_start")
+                end_date = c_end.date_input("Til dato", value=date.today() - timedelta(days=1), key="rep_end")
+                st.session_state["report_start"] = start_date
+                st.session_state["report_end"] = end_date
+
+        # --- TWO PRINT BUTTONS ---
+        c_p1, c_p2 = st.columns(2)
+        with c_p1:
+            if st.button("🖨️ Skriv ut Rapport (Tekst)"):
+                st.session_state.print_mode = "report"
+                st.rerun()
+        with c_p2:
+            if st.button("🖨️ Skriv ut Døgnrytme (Graf)"):
+                st.session_state.print_mode = "chart"
+                st.rerun()
+
+    else:
+        # --- PRINT MODE ---
+        # Retrieve dates from session state if available, else default
+        start_date = st.session_state.get("report_start", start_date)
+        end_date = st.session_state.get("report_end", end_date)
+
+    # Apply Filter
+    mask = (df["Date"] >= start_date) & (df["Date"] <= end_date)
+    filtered_df = df.loc[mask]
+    
+    if filtered_df.empty:
+        st.info(f"Ingen data funnet i perioden {start_date} til {end_date}.")
+        return
+
+    st.divider()
+    
+    # Render Content
+    render_report_content(filtered_df, start_date, end_date, print_mode=print_mode)
 
 # --- RUN ---
 if __name__ == "__main__":

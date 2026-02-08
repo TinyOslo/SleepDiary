@@ -40,7 +40,7 @@
             "wake_up": "06:45:00",
             "awakenings": [
                 {
-                    "time": "03:00:00",
+                    "time": "03:45:00",
                     "duration_min": 10
                 }
             ],
@@ -55,7 +55,7 @@
             "wake_up": "06:15:00",
             "awakenings": [
                 {
-                    "time": "03:15:00",
+                    "time": "05:00:00",
                     "duration_min": 10
                 }
             ],
@@ -85,7 +85,7 @@
             "wake_up": "06:30:00",
             "awakenings": [
                 {
-                    "time": "02:30:00",
+                    "time": "03:00:00",
                     "duration_min": 5
                 },
                 {
@@ -110,16 +110,6 @@
             ],
             "waso_minutes": 10,
             "nap_minutes": 20
-        },
-        "2026-02-08": {
-            "bed_time": "02:00:00",
-            "out_of_bed": "07:00:00",
-            "lights_out": "02:00:00",
-            "sleep_onset": "04:00:00",
-            "wake_up": "07:00:00",
-            "awakenings": [],
-            "waso_minutes": 0,
-            "nap_minutes": 0
         },
         "2026-02-07": {
             "bed_time": "02:00:00",
