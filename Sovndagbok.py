@@ -932,7 +932,8 @@ def render_logging_view(manager):
 
     # Initialize session state for date
     if "log_date" not in st.session_state:
-        st.session_state.log_date = date.today()
+        # Default to yesterday (since we log the night that just passed)
+        st.session_state.log_date = date.today() - timedelta(days=1)
         load_data_for_date()
         
     # Load defaults if bed_time not set
