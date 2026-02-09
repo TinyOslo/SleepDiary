@@ -553,54 +553,184 @@ def build_sleep_gantt_figure(df, for_print=False):
     fig_gantt.update_layout(**layout_args)
     return fig_gantt
 
-def render_landing_page(manager):
-    render_custom_css()
-    st.title("🌙 Søvndagbok - CBT-i")
+def render_file_explorer(manager, mode="open"):
+    """
+    Renders a file explorer using st.dataframe for a professional 'Details' view.
+    mode: 'open' (click file to load) or 'new' (click folder to navigate)
+    """
+    current_path = st.session_state.current_browser_dir
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Ny dagbok")
-        with st.form("new_user_form"):
-            new_name = st.text_input("Ditt navn")
-            filename = st.text_input("Filnavn", value="min_sovndagbok.json")
-            save_dir = st.session_state.current_browser_dir
-            st.caption(f"Lagres i: {save_dir} - **VELG MAPPE TIL HØYRE ->>**")
-            
-            if st.form_submit_button("Opprett ny"):
-                if manager.create_new_log(new_name, save_dir, filename):
-                    st.rerun()
-
-    with col2:
-        st.subheader("Åpne fil")
-        current_path = st.session_state.current_browser_dir
-        st.text(f"📍 {current_path}")
-        
-        if st.button("⬆️ Gå til mappen over"):
+    # 1. Navigation Header
+    c1, c2 = st.columns([0.1, 0.9])
+    with c1:
+        if st.button("⬆️", help="Gå til mappen over"):
             st.session_state.current_browser_dir = os.path.dirname(current_path)
             st.rerun()
+    with c2:
+        st.code(current_path, language=None)
+
+    # 2. Prepare Data
+    try:
+        items = os.listdir(current_path)
+    except PermissionError:
+        st.error(f"Ingen tilgang til mappen: {current_path}")
+        return
+
+    data = []
+    
+    # Process Directories
+    dirs = sorted([d for d in items if os.path.isdir(os.path.join(current_path, d)) and not d.startswith('.')])
+    for d in dirs:
+        full_path = os.path.join(current_path, d)
+        stats = os.stat(full_path)
+        mtime = datetime.fromtimestamp(stats.st_mtime).strftime("%d.%m.%Y %H:%M")
+        data.append({
+            "Type": "📁", 
+            "Navn": d, 
+            "Sist endret": mtime, 
+            "Størrelse": "-",
+            "path": full_path,
+            "is_dir": True
+        })
+
+    # Process Files
+    files = sorted([f for f in items if f.endswith('.json')])
+    for f in files:
+        full_path = os.path.join(current_path, f)
+        stats = os.stat(full_path)
+        mtime = datetime.fromtimestamp(stats.st_mtime).strftime("%d.%m.%Y %H:%M")
+        size_kb = f"{max(1, int(stats.st_size / 1024))} KB"
+        data.append({
+            "Type": "🌙", 
+            "Navn": f, 
+            "Sist endret": mtime, 
+            "Størrelse": size_kb,
+            "path": full_path,
+            "is_dir": False
+        })
         
-        try:
-            items = os.listdir(current_path)
-            dirs = [d for d in items if os.path.isdir(os.path.join(current_path, d)) and not d.startswith('.')]
-            files = [f for f in items if f.endswith('.json')]
+    # 3. Render Dataframe
+    if not data:
+        st.caption("Tom mappe.")
+        return
+
+    df_explorer = pd.DataFrame(data)
+    
+    # Configure columns
+    column_config = {
+        "Type": st.column_config.TextColumn("Type", width="small"),
+        "Navn": st.column_config.TextColumn("Navn", width="large"),
+        "Sist endret": st.column_config.TextColumn("Sist endret", width="medium"),
+        "Størrelse": st.column_config.TextColumn("Størrelse", width="small"),
+        "path": None,   # Hide hidden columns
+        "is_dir": None
+    }
+    
+    event = st.dataframe(
+        df_explorer,
+        use_container_width=True,
+        hide_index=True,
+        column_config=column_config,
+        on_select="rerun",
+        selection_mode="single-row"
+    )
+    
+    # 4. Handle Selection
+    if event.selection.rows:
+        selected_index = event.selection.rows[0]
+        selected_item = data[selected_index]
+        
+        if selected_item["is_dir"]:
+            st.session_state.current_browser_dir = selected_item["path"]
+            st.rerun()
             
-            st.markdown("**Mapper:**")
-            cols = st.columns(3)
-            for i, d in enumerate(dirs):
-                if cols[i % 3].button(f"📁 {d}", key=f"dir_{d}"):
-                    st.session_state.current_browser_dir = os.path.join(current_path, d)
+        else:
+            # File selection
+            if mode == "open":
+                if manager.load_log(selected_item["path"]):
+                    st.session_state.main_menu_nav = "🏠 Loggføring"
                     st.rerun()
+            elif mode == "new":
+                # In 'new' mode, selecting a file might not do much unless we want to Overwrite?
+                # For now, just maybe show it's selected or do nothing.
+                pass
+
+
+def render_welcome_view(manager):
+    render_custom_css()
+    
+    # --- HEADER & INTRO ---
+    # Centered aesthetic
+    c_spacer, c_content, c_spacer2 = st.columns([1, 6, 1])
+    
+    with c_content:
+        st.title("🌙 Søvndagbok")
+        st.caption("Kognitiv atferdsbehandling for insomni (CBT-i)")
+        
+        # Intro Box
+        with st.container():
+            st.markdown("""
+            ### Velkommen til din søvndagbok
+            Dette verktøyet er bygget på prinsippene for **Kognitiv atferdsterapi for insomni (CBT-i)**, som er den anbefalte behandlingen for langvarige søvnproblemer.
             
-            st.markdown("**Gyldige søvndagbokfiler:**")
-            for f in files:
-                full_path = os.path.join(current_path, f)
-                if st.button(f"📄 {f}", key=f"file_{f}"):
-                    if manager.load_log(full_path):
+            Appen hjelper deg med å:
+            *   **Kartlegge søvnmønsteret ditt** systematisk over tid.
+            *   **Beregne søvneffektivitet** (hvor mye av tiden i sengen du faktisk sover).
+            *   **Bygge opp søvntrykk** ved å begrense tiden i sengen til det du faktisk trenger (søvnrestriksjon).
+            *   **Justere søvnvinduet** basert på dine egne data fra uke til uke.
+            """)
+        
+        st.warning("⚠️ **Om verktøyet:** Denne appen er et selvstendig hjelpemiddel for egenmestring og struktur. Den erstatter ikke helsefaglig behandling, men fungerer som et supplement til terapibasert behandling.")
+        
+        st.divider()
+        
+        # --- MODE SELECTION ---
+        # "Tabs" feel using radio/segmented
+        
+        # Check for segmented_control availability
+        nav_mode = None
+        if hasattr(st, "segmented_control"):
+            nav_mode = st.segmented_control(
+                "Jeg vil:", 
+                ["📂 Åpne eksisterende dagbok", "✨ Starte ny dagbok"],
+                default="📂 Åpne eksisterende dagbok"
+            )
+        else:
+            nav_mode = st.radio(
+                "Jeg vil:", 
+                ["📂 Åpne eksisterende dagbok", "✨ Starte ny dagbok"],
+                horizontal=True
+            )
+            
+        st.write("") # Spacer
+
+        if not nav_mode:
+            nav_mode = "📂 Åpne eksisterende dagbok"
+
+        if nav_mode == "📂 Åpne eksisterende dagbok":
+            st.subheader("Velg fil")
+            with st.container(border=True):
+                 render_file_explorer(manager, mode="open")
+                 
+        else:
+            st.subheader("Opprett ny dagbok")
+            with st.container(border=True):
+                c1, c2 = st.columns(2)
+                name = c1.text_input("Ditt navn", placeholder="Navn")
+                filename = c2.text_input("Filnavn", value="min_sovndagbok.json")
+                
+                st.write("**Velg lagringsmappe:**")
+                st.info(f"Valgt mappe: `{st.session_state.current_browser_dir}`")
+                
+                # File explorer in 'new' mode logic
+                render_file_explorer(manager, mode="new")
+                
+                st.divider()
+                if st.button("🚀 Opprett og start", type="primary", use_container_width=True):
+                    if manager.create_new_log(name, st.session_state.current_browser_dir, filename):
+                        # SUCCESS HOOK: Set default menu to 'Plan'
+                        st.session_state.main_menu_nav = "📅 Din søvnplan"
                         st.rerun()
-                        
-        except PermissionError:
-            st.error("Ingen tilgang til denne mappen.")
 
 def render_main_app(manager):
     render_custom_css()
@@ -609,11 +739,37 @@ def render_main_app(manager):
     
     with st.sidebar:
         st.markdown(f"### 👤 {meta['name']}")
-        mode = st.radio("Meny", ["📅 Din søvnplan", "🏠 Loggføring", "📊 Visualisering", "📈 Analyse og råd", "📝 Rapporter og utskrifter", "📂 Rådata"])
+        
+        # Check if we have a requested page from welcome view
+        default_index = 1 # Default to "Loggføring" normally
+        options = ["📅 Din søvnplan", "🏠 Loggføring", "📊 Visualisering", "📈 Analyse og råd", "📝 Rapporter og utskrifter", "📂 Rådata"]
+        
+        if "main_menu_nav" in st.session_state:
+            try:
+                default_index = options.index(st.session_state.main_menu_nav)
+            except ValueError:
+                default_index = 1
+        
+        # Use key to sync with state, but if generic state issue, just use separate logic
+        # Ideally, we pass 'index' to radio. 
+        # But if we use 'key', Streamlit handles it.
+        # Let's initialize the key if not set.
+        if "main_menu_key" not in st.session_state:
+             st.session_state.main_menu_key = options[default_index]
+             
+        # Override if we just came from welcome view (flag)
+        if "main_menu_nav" in st.session_state:
+            st.session_state.main_menu_key = st.session_state.main_menu_nav
+            del st.session_state.main_menu_nav # Consume the flag
+
+        mode = st.radio("Meny", options, key="main_menu_key")
+        
         st.divider()
         if st.button("Lukk dagbok"):
             st.session_state.data = None
             st.session_state.filepath = None
+            if "main_menu_key" in st.session_state:
+                del st.session_state.main_menu_key
             st.rerun()
 
     if mode == "📅 Din søvnplan":
@@ -1686,6 +1842,6 @@ def render_weekly_report_view(manager):
 if __name__ == "__main__":
     manager = SleepDataManager()
     if st.session_state.data is None:
-        render_landing_page(manager)
+        render_welcome_view(manager)
     else:
         render_main_app(manager)
