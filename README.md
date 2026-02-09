@@ -47,7 +47,7 @@ Data lagres lokalt på maskinen som JSON-filer, noe som sikrer enkel tilgang og 
 4. **Start applikasjonen:**
    Kjør følgende kommando i terminalen:
    ```bash
-   streamlit run Søvndagbok.py
+   streamlit run Sovndagbok.py
    ```
 
 ## Bruk
