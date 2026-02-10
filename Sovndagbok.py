@@ -648,7 +648,7 @@ def render_file_explorer(manager, mode="open"):
             # File selection
             if mode == "open":
                 if manager.load_log(selected_item["path"]):
-                    st.session_state.main_menu_nav = "🏠 Loggføring"
+                    st.session_state.main_menu_nav = "✍️ Loggføring"
                     st.rerun()
             elif mode == "new":
                 # In 'new' mode, selecting a file might not do much unless we want to Overwrite?
@@ -742,7 +742,7 @@ def render_main_app(manager):
         
         # Check if we have a requested page from welcome view
         default_index = 1 # Default to "Loggføring" normally
-        options = ["📅 Din søvnplan", "🏠 Loggføring", "📊 Visualisering", "📈 Analyse og råd", "📝 Rapporter og utskrifter", "📂 Rådata"]
+        options = ["📅 Din søvnplan", "✍️ Loggføring", "📊 Visualisering", "📈 Analyse og råd", "📝 Rapporter og utskrifter", "📂 Rådata"]
         
         if "main_menu_nav" in st.session_state:
             try:
@@ -774,7 +774,7 @@ def render_main_app(manager):
 
     if mode == "📅 Din søvnplan":
          render_plan_view(manager)
-    elif mode == "🏠 Loggføring":
+    elif mode == "✍️ Loggføring":
         render_logging_view(manager)
     elif mode == "📊 Visualisering":
         render_viz_view(manager)
@@ -784,6 +784,45 @@ def render_main_app(manager):
          render_weekly_report_view(manager)
     elif mode == "📂 Rådata":
          render_rawdata_view(manager)
+
+def render_sleep_schedule_history_table(manager):
+    """
+    Renders a read-only table of the sleep window history.
+    """
+    history = manager.get_window_history()
+    if history:
+        table_rows = []
+        # Reverse to show newest first
+        for i, entry in enumerate(reversed(history)):
+            row_num = len(history) - i
+            
+            start = entry["start_date"]
+            end = entry["end_date"] if entry["end_date"] else "Pågår"
+            t_wake = entry["target_wake"]
+            win = entry["window_hours"]
+            
+            table_rows.append({
+                "Periode": row_num,
+                "Fra": start,
+                "Til": end,
+                "Mål oppvåkning": t_wake,
+                "Vindu": format_hours_as_hm(win)
+            })
+            
+        st.dataframe(
+            table_rows, 
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Periode": st.column_config.NumberColumn("Periode", width="small"),
+                "Fra": st.column_config.TextColumn("Fra", width="medium"),
+                "Til": st.column_config.TextColumn("Til", width="medium"),
+                "Mål oppvåkning": st.column_config.TextColumn("Mål oppvåkning", width="medium"),
+                "Vindu (t)": st.column_config.NumberColumn("Vindu (t)", format="%.2f", width="medium")
+            }
+        )
+    else:
+        st.caption("Ingen historikk funnet.")
 
 def render_plan_view(manager):
     st.header("📅 Din søvnplan")
@@ -837,41 +876,7 @@ def render_plan_view(manager):
         render_window_history_editor(manager)
 
     st.subheader("Historikk")
-    
-    history = manager.get_window_history()
-    if history:
-        table_rows = []
-        # Reverse to show newest first
-        for i, entry in enumerate(reversed(history)):
-            row_num = len(history) - i
-            
-            start = entry["start_date"]
-            end = entry["end_date"] if entry["end_date"] else "Pågår"
-            t_wake = entry["target_wake"]
-            win = entry["window_hours"]
-            
-            table_rows.append({
-                "Periode": row_num,
-                "Fra": start,
-                "Til": end,
-                "Mål oppvåkning": t_wake,
-                "Vindu": format_hours_as_hm(win)
-            })
-            
-        st.dataframe(
-            table_rows, 
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "Periode": st.column_config.NumberColumn("Periode", width="small"),
-                "Fra": st.column_config.TextColumn("Fra", width="medium"),
-                "Til": st.column_config.TextColumn("Til", width="medium"),
-                "Mål oppvåkning": st.column_config.TextColumn("Mål oppvåkning", width="medium"),
-                "Vindu (t)": st.column_config.NumberColumn("Vindu (t)", format="%.2f", width="medium")
-            }
-        )
-    else:
-        st.caption("Ingen historikk funnet.")
+    render_sleep_schedule_history_table(manager)
 
 
 def render_window_history_editor(manager):
@@ -1307,12 +1312,30 @@ def render_rawdata_view(manager):
         return
         
     entries = st.session_state.data["entries"]
+    
+    # --- METADATA ---
+    # Display file info regardless of entries content
+    with st.expander("Filinformasjon", expanded=True):
+        meta = st.session_state.data.get("meta", {})
+        filepath = st.session_state.get("filepath", "Ukjent")
+        filename = os.path.basename(filepath) if filepath else "Ukjent"
+        
+        st.markdown(f"**Filnavn:** `{filename}`")
+        st.markdown(f"**Filadresse:** `{filepath}`")
+        st.markdown(f"**Navn:** {meta.get('name', '-')}")
+        st.markdown(f"**Opprettet:** {meta.get('created', '-')}")
+        st.markdown(f"**Version:** {meta.get('version', '-')}")
+        st.markdown(f"**Settings:** `{meta.get('settings', {})}`")
+
     if not entries:
         st.info("Ingen loggføringer funnet.")
         return
 
+    st.divider()
+
     # 2. Controls
-    filter_option = st.radio("Visning", ["Siste 7 dager", "Alle data"], horizontal=True)
+    st.subheader("✍️ Loggføringer")
+    filter_option = st.radio("Visning", ["Siste 7 dager", "Alle data"], horizontal=True, label_visibility="collapsed")
     
     # 3. Process Data into List
     rows = []
@@ -1359,6 +1382,10 @@ def render_rawdata_view(manager):
             "Oppvåkninger detaljer": st.column_config.TextColumn("Oppvåkninger", width="large"),
         }
     )
+
+    st.divider()
+    st.subheader("📅 Søvnplan-historikk")
+    render_sleep_schedule_history_table(manager)
 
 def render_analysis_view(manager):
     """

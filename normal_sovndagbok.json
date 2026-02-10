@@ -59,10 +59,10 @@
             "nap_minutes": 0
         },
         "2026-02-06": {
-            "bed_time": "04:30:00",
+            "bed_time": "01:45:00",
             "out_of_bed": "07:00:00",
-            "lights_out": "04:30:00",
-            "sleep_onset": "04:45:00",
+            "lights_out": "01:45:00",
+            "sleep_onset": "02:00:00",
             "wake_up": "07:00:00",
             "awakenings": [
                 {
@@ -100,6 +100,51 @@
             "wake_up": "06:45:00",
             "awakenings": [],
             "waso_minutes": 0,
+            "nap_minutes": 0
+        },
+        "2026-02-07": {
+            "bed_time": "01:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "01:15:00",
+            "sleep_onset": "01:15:00",
+            "wake_up": "06:30:00",
+            "awakenings": [
+                {
+                    "time": "03:00:00",
+                    "duration_min": 4
+                }
+            ],
+            "waso_minutes": 4,
+            "nap_minutes": 0
+        },
+        "2026-02-08": {
+            "bed_time": "01:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "01:00:00",
+            "sleep_onset": "01:45:00",
+            "wake_up": "06:45:00",
+            "awakenings": [
+                {
+                    "time": "03:00:00",
+                    "duration_min": 10
+                }
+            ],
+            "waso_minutes": 10,
+            "nap_minutes": 0
+        },
+        "2026-02-09": {
+            "bed_time": "01:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "01:15:00",
+            "sleep_onset": "01:30:00",
+            "wake_up": "06:45:00",
+            "awakenings": [
+                {
+                    "time": "06:00:00",
+                    "duration_min": 5
+                }
+            ],
+            "waso_minutes": 5,
             "nap_minutes": 0
         }
     }
