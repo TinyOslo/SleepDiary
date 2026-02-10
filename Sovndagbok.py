@@ -678,9 +678,11 @@ def render_welcome_view(manager):
             *   **Beregne søvneffektivitet** (hvor mye av tiden i sengen du faktisk sover).
             *   **Bygge opp søvntrykk** ved å begrense tiden i sengen til det du faktisk trenger (søvnrestriksjon).
             *   **Justere søvnvinduet** basert på dine egne data fra uke til uke.
+            *   **Få innsikt i søvnmønsteret ditt** gjennom grafer og analyser.
+            *   **Dine data lagres lokalt** på din egen enhet. Du har full kontroll over dine data.
             """)
         
-        st.warning("⚠️ **Om verktøyet:** Denne appen er et selvstendig hjelpemiddel for egenmestring og struktur. Den erstatter ikke helsefaglig behandling, men fungerer som et supplement til terapibasert behandling.")
+        st.warning("⚠️  **Om verktøyet:** Denne appen er et selvstendig hjelpemiddel for egenmestring og struktur. Den erstatter ikke helsefaglig behandling, men fungerer som et supplement til terapibasert behandling.")
         
         st.divider()
         
