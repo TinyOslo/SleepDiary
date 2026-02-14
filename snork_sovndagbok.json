@@ -149,6 +149,70 @@
             "awakenings": [],
             "waso_minutes": 0,
             "nap_minutes": 45
+        },
+        "2026-02-13": {
+            "bed_time": "02:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "02:15:00",
+            "sleep_onset": "03:15:00",
+            "wake_up": "06:45:00",
+            "awakenings": [
+                {
+                    "time": "04:00:00",
+                    "duration_min": 10
+                }
+            ],
+            "waso_minutes": 10,
+            "nap_minutes": 15
+        },
+        "2026-02-10": {
+            "bed_time": "02:00:00",
+            "out_of_bed": "07:00:00",
+            "lights_out": "02:15:00",
+            "sleep_onset": "03:15:00",
+            "wake_up": "07:00:00",
+            "awakenings": [
+                {
+                    "time": "04:00:00",
+                    "duration_min": 10
+                },
+                {
+                    "time": "04:30:00",
+                    "duration_min": 15
+                }
+            ],
+            "waso_minutes": 25,
+            "nap_minutes": 30
+        },
+        "2026-02-11": {
+            "bed_time": "02:45:00",
+            "out_of_bed": "07:45:00",
+            "lights_out": "02:45:00",
+            "sleep_onset": "03:15:00",
+            "wake_up": "07:45:00",
+            "awakenings": [
+                {
+                    "time": "06:30:00",
+                    "duration_min": 10
+                }
+            ],
+            "waso_minutes": 10,
+            "nap_minutes": 0
+        },
+        "2026-02-12": {
+            "bed_time": "02:00:00",
+            "out_of_bed": "07:30:00",
+            "lights_out": "02:45:00",
+            "sleep_onset": "03:45:00",
+            "wake_up": "07:30:00",
+            "awakenings": [
+                {
+                    "time": "05:15:00",
+                    "duration_min": 10
+                }
+            ],
+            "waso_minutes": 10,
+            "nap_minutes": 0
         }
     }
 }
