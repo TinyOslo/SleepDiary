@@ -163,7 +163,16 @@ class SleepDataManager:
         
         # Init file explorer state
         if "current_browser_dir" not in st.session_state:
-            st.session_state.current_browser_dir = os.getcwd()
+            # DEFAULT SAVE LOCATION: ~/Documents/SleepDiary
+            default_dir = os.path.expanduser("~/Documents/SleepDiary")
+            if not os.path.exists(default_dir):
+                try:
+                    os.makedirs(default_dir, exist_ok=True)
+                except OSError:
+                    # Fallback to current directory if permissions fail
+                    default_dir = os.getcwd()
+            
+            st.session_state.current_browser_dir = default_dir
 
     def create_new_log(self, name, directory, filename="min_sovndagbok.json"):
         full_path = os.path.join(directory, filename)
@@ -436,7 +445,8 @@ def process_log_data(data_entries: Dict[str, Any]) -> pd.DataFrame:
             "wake_dt": wake_dt,
             "lights_dt": lights_dt,
             "awakenings": processed_awakenings,
-            "nap_minutes": entry.get("nap_minutes", 0)
+            "nap_minutes": entry.get("nap_minutes", 0),
+            "comments": entry.get("comments", "")
         })
 
     df = pd.DataFrame(processed_records).sort_values("Date")
@@ -1064,6 +1074,8 @@ def render_logging_view(manager):
                  t_obj = time.fromisoformat(item["time"])
                  parsed.append({"time": t_obj, "duration": item["duration_min"]})
             st.session_state.current_wakeups = parsed
+            st.session_state.comments = entry.get("comments", "")
+
             
             # SNAPSHOT FOR CHANGES
             st.session_state.original_values = {
@@ -1073,7 +1085,8 @@ def render_logging_view(manager):
                 "sleep_onset": st.session_state.sleep_onset,
                 "wake_up": st.session_state.wake_up,
                 "nap_minutes": st.session_state.nap_minutes,
-                "current_wakeups": [w.copy() for w in parsed]
+                "current_wakeups": [w.copy() for w in parsed],
+                "comments": st.session_state.comments
             }
         else:
             plan_wake = time.fromisoformat(settings["target_wake"])
@@ -1088,6 +1101,7 @@ def render_logging_view(manager):
             st.session_state.wake_up = plan_wake
             st.session_state.nap_minutes = 0
             st.session_state.current_wakeups = []
+            st.session_state.comments = ""
             
             # Clear snapshot since it's a new entry
             if "original_values" in st.session_state:
@@ -1102,6 +1116,10 @@ def render_logging_view(manager):
     # Load defaults if bed_time not set
     if "bed_time" not in st.session_state:
         load_data_for_date()
+        
+    # BACKWARD COMPATIBILITY FIX: Ensure 'comments' exists if upgrading while running
+    if "comments" not in st.session_state:
+        st.session_state.comments = ""
     
     st.date_input("Dato", key="log_date", on_change=load_data_for_date)
     
@@ -1121,7 +1139,8 @@ def render_logging_view(manager):
                 st.session_state.lights_out != orig["lights_out"] or
                 st.session_state.sleep_onset != orig["sleep_onset"] or
                 st.session_state.wake_up != orig["wake_up"] or
-                st.session_state.nap_minutes != orig["nap_minutes"]
+                st.session_state.nap_minutes != orig["nap_minutes"] or
+                st.session_state.comments != orig.get("comments", "")
             )
             
             # Complex check for wakeups (list of dicts)
@@ -1138,6 +1157,8 @@ def render_logging_view(manager):
             
             if has_changes:
                 st.warning("📝 Du har gjort endringer i denne loggen. Husk å trykke ‘Lagre Dagbok’ for å ta vare på dem.")
+    else:
+        has_changes = False # New entry always has changes technically but we don't warn about "unsaved changes" vs old.
 
     with st.container():
         st.subheader("Tider")
@@ -1194,6 +1215,14 @@ def render_logging_view(manager):
     st.info(f"Total våkentid: **{total_waso} minutter**")
     
     st.divider()
+    
+    st.text_area("Kommentarer", key="comments", help="Notater om dagen (f.eks. stress, trening, alkohol...)\nKlikk utenfor feltet eller trykk Ctrl+Enter for å registrere endringer.", height=100)
+    
+    # Show warning near action button for better visibility
+    if has_changes:
+        st.warning("⚠️ Du har ulagrede endringer.")
+
+    st.divider()
 
     if st.button("💾 Lagre dagbok", type="primary"):
         final_awakenings = []
@@ -1211,7 +1240,8 @@ def render_logging_view(manager):
             "wake_up": st.session_state.wake_up.strftime("%H:%M:%S"),
             "awakenings": final_awakenings,
             "waso_minutes": int(total_waso),
-            "nap_minutes": st.session_state.nap_minutes
+            "nap_minutes": st.session_state.nap_minutes,
+            "comments": st.session_state.comments
         }
         manager.save_entry(cur_date, entry_data)
         
@@ -1223,7 +1253,8 @@ def render_logging_view(manager):
             "sleep_onset": st.session_state.sleep_onset,
             "wake_up": st.session_state.wake_up,
             "nap_minutes": st.session_state.nap_minutes,
-            "current_wakeups": [w.copy() for w in st.session_state.current_wakeups]
+            "current_wakeups": [w.copy() for w in st.session_state.current_wakeups],
+            "comments": st.session_state.comments
         }
         st.rerun()
 
@@ -1356,10 +1387,11 @@ def render_rawdata_view(manager):
             "Sovnet": safe_get("sleep_onset"),
             "Våknet": safe_get("wake_up"),
             "Sto opp": safe_get("out_of_bed"),
-            "WASO (min)": safe_get("waso_minutes"),
-            "Søvn dagtid (min)": safe_get("nap_minutes"),
-            "Antall oppvåk.": len(awaks),
-            "Oppvåkninger detaljer": awak_str
+            "WASO": safe_get("waso_minutes"),
+            "Nap": safe_get("nap_minutes"),
+            "Oppv.": len(awaks),
+            "Oppvåkninger detaljer": awak_str,
+            "Kommentarer": safe_get("comments")
         })
     
     # 4. Create DataFrame and Sort
@@ -1380,8 +1412,9 @@ def render_rawdata_view(manager):
         width="stretch", 
         hide_index=True,
         column_config={
-            "Dato": st.column_config.TextColumn("Dato", width="medium"),
+            "Dato": st.column_config.TextColumn("Dato"),
             "Oppvåkninger detaljer": st.column_config.TextColumn("Oppvåkninger", width="large"),
+            "Kommentarer": st.column_config.TextColumn("Kommentarer", width="large"),
         }
     )
 
@@ -1673,6 +1706,69 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
 
     table_md = generate_aligned_table(filtered_df)
 
+    # --- COMMENTS TABLE GENERATION ---
+    def generate_comments_table(df):
+        import textwrap
+        
+        # Filter for rows with comments
+        comments_df = df[df["comments"].str.len() > 0].sort_values("Date")
+        
+        if comments_df.empty:
+            return ""
+            
+        headers = ["Dato", "Kommentar"]
+        # Allow comment column to be wider
+        # Total target width = 60 chars (to match data table)
+        # Date col: 6 chars. 
+        # Structure: | Date   | Comment...
+        # Widths: 6, and (60 - 9 - 3) = 48? 
+        # Let's match exact calc:
+        # Table 1: | 6 | 7 | 8 | 8 | 6 | 6 | -> 60 chars total.
+        # Table 2: | 6 | X |
+        # | D...... | C...... |
+        # 1 + 8 + 1 + (X+2) + 1 = 60
+        # 11 + X + 2 = 60 -> X = 47.
+        
+        c_width = 47
+        widths = [6, c_width]
+        
+        md = ""
+        head_line = "|"
+        sep_line = "|"
+        for h, w in zip(headers, widths):
+             head_line += f" {h:<{w}} |"
+             sep_line += f" {'-'*w} |"
+        
+        md += head_line + "\n" + sep_line + "\n"
+        
+        for _, row in comments_df.iterrows():
+            d_str = row["Date"].strftime("%d.%m")
+            raw_comm = row["comments"]
+            
+            # Wrap text
+            lines = textwrap.wrap(raw_comm, width=c_width)
+            if not lines:
+                lines = [""]
+                
+            # First line with date
+            row_line = f"| {d_str:<{widths[0]}} | {lines[0]:<{widths[1]}} |"
+            md += row_line + "\n"
+            
+            # Subsequent lines
+            for line in lines[1:]:
+                row_line = f"| {' ':<{widths[0]}} | {line:<{widths[1]}} |"
+                md += row_line + "\n"
+            
+            # Optional: Add separator for readability between rows? 
+            # User request: "cellen utvides med flere linjer" -> implies just multi-line text, 
+            # not necessarily a grid line between every row.
+            # But let's add a spacer line if there are multiple entries to separate them?
+            # Or just rely on the Date being present to indicate new row.
+            
+        return md
+
+    comments_md = generate_comments_table(filtered_df)
+
     # --- MODE: TEXT REPORT or NORMAL ---
     if print_mode == "report" or not print_mode:
         
@@ -1695,6 +1791,12 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
             st.divider()
             st.markdown("#### Dag-for-dag:")
             st.code(table_md, language="text")
+            
+            if comments_md:
+                # Add 4 extra line breaks for printing spacing as requested
+                st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+                st.markdown("#### Kommentarer:")
+                st.code(comments_md, language="text")
 
         else:
             # --- NORMAL MODE ---
@@ -1720,6 +1822,12 @@ Nøkkeltall (snitt):
 Dag-for-dag:
 
 {table_md}
+"""
+            if comments_md:
+                copy_text += f"""
+Kommentarer:
+
+{comments_md}
 """
             # Display readable markdown in UI
             st.markdown(copy_text)
@@ -1766,12 +1874,37 @@ def render_weekly_report_view(manager):
         st.markdown("""
         <style>
             [data-testid="stSidebar"] { display: none; }
+            
+            /* FORCE WHITE BACKGROUND FOR PRINT VIEW ON SCREEN */
+            [data-testid="stAppViewContainer"],
+            [data-testid="stHeader"],
+            .stApp,
+            div[class*="stApp"] {
+                background-color: white !important;
+                color: black !important;
+            }
+            
+            /* Ensure text is black */
+            .stMarkdown, .stText, h1, h2, h3, h4, h5, h6, p, li, span, div {
+                color: black !important;
+            }
+            
             @media print {
                 .stButton, header, footer, .stCaption { display: none !important; }
+                
+                /* Tving hvit bakgrunn på utskrift også */
+                @page { margin: 0; }
+                body {
+                    background-color: white !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                }
+                
                 /* Tving hovedcontainer til A4-bredde og fjern padding */
                 .main .block-container {
                     padding: 10mm !important;
                     margin: 0 auto !important;
+                    background-color: white !important;
                 }
                 /* Skaler ned innholdet litt for å få plass til mer vertikalt */
                 body {
