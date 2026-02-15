@@ -1755,7 +1755,9 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
             md += row_line + "\n"
             
             # Subsequent lines
-            for line in lines[1:]:
+            # Using range to avoid slicing type errors in some environments
+            for i in range(1, len(lines)):
+                line = lines[i]
                 row_line = f"| {' ':<{widths[0]}} | {line:<{widths[1]}} |"
                 md += row_line + "\n"
             
