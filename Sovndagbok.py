@@ -3,6 +3,7 @@
 
 import json
 import os
+import textwrap
 from datetime import datetime, time, date, timedelta
 from typing import Dict, Any, List, Optional
 
@@ -197,8 +198,8 @@ class SleepDataManager:
             "entries": {}
         }
         if os.path.exists(full_path):
-             st.warning(f"Filen {full_path} finnes allerede. Velg et annet navn eller mappe.")
-             return False
+            st.warning(f"Filen {full_path} finnes allerede. Velg et annet navn eller mappe.")
+            return False
 
         self._save_to_disk(full_path, new_data)
         self.load_log(full_path)
@@ -361,6 +362,10 @@ def format_hours_as_hm(hours: float) -> str:
         return f"{h} t"
     return f"{h} t {m} min"
 
+def format_minutes_as_hm(minutes: float) -> str:
+    """Konverterer minutter til 'Xt Ym'-format."""
+    return f"{int(minutes // 60)}t {int(minutes % 60)}m"
+
 # Slider options: 5 hours (300 min) to 12 hours (720 min) step 15
 WINDOW_OPTIONS = range(300, 720, 15)
 def format_window_label(m):
@@ -490,9 +495,7 @@ def build_sleep_gantt_figure(df, for_print=False):
     base_start = datetime(2000, 1, 1, 18, 0)
 
     def get_offset(dt_full):
-        norm_dt = normalize(dt_full)
-        diff = (norm_dt - base_start).total_seconds() * 1000
-        return diff
+        return (normalize(dt_full) - base_start).total_seconds() * 1000
 
     for _, row in df_rev.iterrows():
         d_label = row["DateLabel"]
@@ -903,27 +906,18 @@ def render_window_history_editor(manager):
         st.info("Ingen historikk å redigere.")
         return
 
-    # Use a form? No, interactive edits needed.
-    # We edit a local copy logic
-    
     if "history_editor_data" not in st.session_state:
         # Initialize editor state with DEEP copy
         st.session_state.history_editor_data = [h.copy() for h in history]
-        
-    # Button to reset/reload 
+
+    # Button to reset/reload
     if st.button("🔄 Last inn på nytt"):
-         st.session_state.history_editor_data = [h.copy() for h in history]
-         st.rerun()
+        st.session_state.history_editor_data = [h.copy() for h in history]
+        st.rerun()
 
     edited_history = st.session_state.history_editor_data
-    
-    # Iterate and edit
-    # Sort by start date to keep sane order
-    # edited_history.sort(key=lambda x: x["start_date"]) # Should we force sort? Yes.
-    
+
     # Iterate in reverse to show newest first, but keep index for editing
-    # list(enumerate(history)) gives [(0, h0), (1, h1)...]
-    # reversed(...) gives [(N, hN)... (0, h0)]
     for i, entry in reversed(list(enumerate(edited_history))):
         st.markdown(f"**Periode {i+1}**")
         
@@ -1028,21 +1022,13 @@ def render_window_history_editor(manager):
             valid = False
             
         # Overlap Check
-        for i in range(len(edited_history)):
-            if i < len(edited_history) - 1:
-                curr_end = edited_history[i]["end_date"]
-                next_start = edited_history[i+1]["start_date"]
-                
-                if curr_end is None:
-                     # Active period must be last usually
-                     # If active period is followed by another, it means active period starts BEFORE next one?
-                     # Allowed if active period is *ongoing* and next one is *future plan*? 
-                     # But current logic treats active as *current*.
-                     # Let's not strictly block based on position, but warn if active is not last?
-                     pass 
-                elif curr_end >= next_start:
-                     st.error(f"Periode {i+1} slutter ({curr_end}) etter eller samtidig som periode {i+2} starter ({next_start}).")
-                     valid = False
+        for i in range(len(edited_history) - 1):
+            curr_end = edited_history[i]["end_date"]
+            next_start = edited_history[i+1]["start_date"]
+
+            if curr_end is not None and curr_end >= next_start:
+                st.error(f"Periode {i+1} slutter ({curr_end}) etter eller samtidig som periode {i+2} starter ({next_start}).")
+                valid = False
         
         if valid:
             manager.save_window_history(edited_history)
@@ -1373,25 +1359,22 @@ def render_rawdata_view(manager):
     # 3. Process Data into List
     rows = []
     for date_str, data in entries.items():
-        # Helpers for safety
-        def safe_get(key): return data.get(key, "")
-        
         # Format awakenings
         awaks = data.get("awakenings", [])
         awak_str = "; ".join([f"{a['time']} ({a['duration_min']}m)" for a in awaks])
-        
+
         rows.append({
             "Dato": date_str,
-            "Leggetid": safe_get("bed_time"),
-            "Slukket lys": safe_get("lights_out"),
-            "Sovnet": safe_get("sleep_onset"),
-            "Våknet": safe_get("wake_up"),
-            "Sto opp": safe_get("out_of_bed"),
-            "WASO": safe_get("waso_minutes"),
-            "Nap": safe_get("nap_minutes"),
+            "Leggetid": data.get("bed_time", ""),
+            "Slukket lys": data.get("lights_out", ""),
+            "Sovnet": data.get("sleep_onset", ""),
+            "Våknet": data.get("wake_up", ""),
+            "Sto opp": data.get("out_of_bed", ""),
+            "WASO": data.get("waso_minutes", ""),
+            "Nap": data.get("nap_minutes", ""),
             "Oppv.": len(awaks),
             "Oppvåkninger detaljer": awak_str,
-            "Kommentarer": safe_get("comments")
+            "Kommentarer": data.get("comments", "")
         })
     
     # 4. Create DataFrame and Sort
@@ -1443,17 +1426,13 @@ def render_analysis_view(manager):
 
     # Retrieve history to find active start date
     history = manager.get_window_history()
-    active_start_date = None
-    
-    # Standard: Find active period (end_date=None)
-    for period in history:
-        if period.get("end_date") is None:
-            active_start_date = period.get("start_date")
-            break
-            
-    # Fallback if no active period found (should logically not happen if initialized correctly)
+
+    # Find active period (end_date=None)
+    active_period = next((p for p in history if p.get("end_date") is None), None)
+    active_start_date = active_period.get("start_date") if active_period else None
+
+    # Fallback if no active period found
     if not active_start_date or not isinstance(active_start_date, str):
-        # If dataset has dates, pick a very old one or just use all
         active_start_date = "2000-01-01"
 
     # Convert to date object for comparison
@@ -1475,13 +1454,10 @@ def render_analysis_view(manager):
     avg_tst = relevant_df["TST_min"].mean()
     avg_tib = relevant_df["TIB_min"].mean()
     
-    def fmt_min(m):
-        return f"{int(m // 60)}t {int(m % 60)}m"
-
     c1, c2, c3 = st.columns(3)
     c1.metric("Søvneffektivitet", f"{avg_se:.1f}%")
-    c2.metric("Total søvn (TST)", fmt_min(avg_tst))
-    c3.metric("Tid i seng (TIB)", fmt_min(avg_tib))
+    c2.metric("Total søvn (TST)", format_minutes_as_hm(avg_tst))
+    c3.metric("Tid i seng (TIB)", format_minutes_as_hm(avg_tib))
     
     st.divider()
     
@@ -1582,28 +1558,20 @@ def render_analysis_view(manager):
         try:
             log_date = row["Date"]
             plan = manager.get_window_for_date(log_date)
-            
+
             target_wake = time.fromisoformat(plan["target_wake"])
             window_hours = plan["window_hours"]
-            
-            # Logic: Target Wake - Window
-            dummy_date = date(2000, 1, 1)
-            wake_dt = datetime.combine(dummy_date, target_wake)
-            plan_bed_dt = wake_dt - timedelta(hours=window_hours)
-            
-            # Re-construct absolute planned wake for this log entry
+
+            # Re-construct absolute planned wake and bed for this log entry
             target_wake_dt = datetime.combine(log_date + timedelta(days=1), target_wake)
             planned_bed_dt = target_wake_dt - timedelta(hours=window_hours)
-            
+
             actual_bed_dt = row["bed_dt"]
             actual_out_dt = row["out_dt"]
-            
-            bed_diff_seconds = abs((actual_bed_dt - planned_bed_dt).total_seconds())
-            bed_diff_min = bed_diff_seconds / 60
-            
-            wake_diff_seconds = abs((actual_out_dt - target_wake_dt).total_seconds())
-            wake_diff_min = wake_diff_seconds / 60
-            
+
+            bed_diff_min = abs((actual_bed_dt - planned_bed_dt).total_seconds()) / 60
+            wake_diff_min = abs((actual_out_dt - target_wake_dt).total_seconds()) / 60
+
             return bed_diff_min <= 30 and wake_diff_min <= 30
         except Exception:
             return False
@@ -1644,8 +1612,8 @@ def render_analysis_view(manager):
         display_df = relevant_df.copy()
         display_df["Dato"] = display_df["Date"].astype(str)
         display_df["SE (%)"] = display_df["SE"].round(1)
-        display_df["TST (t:m)"] = display_df["TST_min"].apply(fmt_min)
-        display_df["TIB (t:m)"] = display_df["TIB_min"].apply(fmt_min)
+        display_df["TST (t:m)"] = display_df["TST_min"].apply(format_minutes_as_hm)
+        display_df["TIB (t:m)"] = display_df["TIB_min"].apply(format_minutes_as_hm)
         
         st.dataframe(
             display_df[["Dato", "SE (%)", "TST (t:m)", "TIB (t:m)"]],
@@ -1663,14 +1631,9 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
     # --- METRICS CALCULATION ---
     avg_se = filtered_df["SE"].mean()
     avg_tst_min = filtered_df["TST_min"].mean()
-    def fmt_hm(m): return f"{int(m // 60)}t {int(m % 60)}m"
     avg_tib_min = filtered_df["TIB_min"].mean()
-    
-    total_waso_list = []
-    for _, row in filtered_df.iterrows():
-        w_sum = sum(a["duration_min"] for a in row["awakenings"])
-        total_waso_list.append(w_sum)
-        
+
+    total_waso_list = [sum(a["duration_min"] for a in row["awakenings"]) for _, row in filtered_df.iterrows()]
     avg_waso = sum(total_waso_list) / len(total_waso_list) if total_waso_list else 0
     num_nights = len(filtered_df)
     avg_nap_min = filtered_df["nap_minutes"].mean() if "nap_minutes" in filtered_df.columns else 0
@@ -1692,8 +1655,8 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
         for _, row in df.sort_values("Date").iterrows():
             d_str = row["Date"].strftime("%d.%m")
             se_val = f"{row['SE']:.1f}%"
-            tst_str = fmt_hm(row['TST_min'])
-            tib_str = fmt_hm(row['TIB_min'])
+            tst_str = format_minutes_as_hm(row['TST_min'])
+            tib_str = format_minutes_as_hm(row['TIB_min'])
             w_sum = sum(a["duration_min"] for a in row["awakenings"])
             nap_val = row.get("nap_minutes", 0)
             
@@ -1708,7 +1671,6 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
 
     # --- COMMENTS TABLE GENERATION ---
     def generate_comments_table(df):
-        import textwrap
         
         # Filter for rows with comments
         comments_df = df[df["comments"].str.len() > 0].sort_values("Date")
@@ -1776,8 +1738,8 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
         
         # Prepare metrics string
         metrics_md = f"""- SE: {avg_se:.1f}%
-- TST: {fmt_hm(avg_tst_min)}
-- TIB: {fmt_hm(avg_tib_min)}
+- TST: {format_minutes_as_hm(avg_tst_min)}
+- TIB: {format_minutes_as_hm(avg_tib_min)}
 - WASO: {int(avg_waso)} min
 - Nap: {int(avg_nap_min)} min"""
 
@@ -1806,8 +1768,8 @@ def render_report_content(filtered_df, start_date, end_date, print_mode=False):
             m1, m2, m3, m4, m5, m6 = st.columns(6)
             m1.metric("Netter", f"{num_nights}")
             m2.metric("Snitt SE", f"{avg_se:.1f}%")
-            m3.metric("Snitt TST", fmt_hm(avg_tst_min))
-            m4.metric("Snitt TIB", fmt_hm(avg_tib_min))
+            m3.metric("Snitt TST", format_minutes_as_hm(avg_tst_min))
+            m4.metric("Snitt TIB", format_minutes_as_hm(avg_tib_min))
             m5.metric("Snitt WASO", f"{int(avg_waso)} min")
             m6.metric("Snitt Nap", f"{int(avg_nap_min)} min")
 
