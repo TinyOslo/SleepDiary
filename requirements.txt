@@ -4,3 +4,4 @@
 streamlit==1.54.0
 pandas>=2.0.0,<3.0.0  # Tillater oppdateringer innenfor versjon 2
 plotly==6.5.2
+pytest==9.0.2
